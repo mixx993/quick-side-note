@@ -6,7 +6,7 @@
 
 Quick Side Note 需要从“解压后运行 exe”升级为常见 Windows 桌面软件形态：
 
-- 用户双击 `QuickSideNote_Setup_v1.4.1.exe` 安装。
+- 用户双击 `QuickSideNote_Setup_v1.4.2.exe` 安装。
 - 默认安装到当前用户目录，不要求管理员权限。
 - 安装后创建开始菜单快捷方式，可选创建桌面快捷方式。
 - 安装向导使用简体中文界面。
@@ -105,7 +105,7 @@ installer\ChineseSimplified.isl
 输出文件：
 
 ```text
-release\QuickSideNote_Setup_v1.4.1.exe
+release\QuickSideNote_Setup_v1.4.2.exe
 ```
 
 ## 建议的首次配置流程

@@ -21,7 +21,7 @@ from PIL import Image, ImageGrab, ImageOps
 
 
 APP_NAME = "Quick Side Note"
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 NOTE_DIR = Path.home() / "Documents" / "QuickSideNote"
 NOTE_FILE = NOTE_DIR / "note.txt"
 DEFAULT_NOTE_PAGES = (
@@ -63,7 +63,6 @@ SWP_SHOWWINDOW = 0x0040
 WM_SETTINGCHANGE = 0x001A
 SMTO_ABORTIFHUNG = 0x0002
 WM_APP = 0x8000
-WM_NULL = 0x0000
 WM_LBUTTONDBLCLK = 0x0203
 WM_RBUTTONUP = 0x0205
 WM_CONTEXTMENU = 0x007B
@@ -73,20 +72,11 @@ IMAGE_ICON = 1
 LR_LOADFROMFILE = 0x0010
 LR_DEFAULTSIZE = 0x0040
 NIM_ADD = 0x00000000
-NIM_MODIFY = 0x00000001
 NIM_DELETE = 0x00000002
 NIF_MESSAGE = 0x00000001
 NIF_ICON = 0x00000002
 NIF_TIP = 0x00000004
 TRAY_ICON_ID = 1
-TRAY_MENU_TOGGLE = 1001
-TRAY_MENU_SETTINGS = 1002
-TRAY_MENU_EXIT = 1003
-MF_STRING = 0x00000000
-MF_SEPARATOR = 0x00000800
-TPM_RIGHTBUTTON = 0x0002
-TPM_RETURNCMD = 0x0100
-TPM_NONOTIFY = 0x0080
 SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77
 SM_CXVIRTUALSCREEN = 78
@@ -202,8 +192,6 @@ INSTANCE_MUTEX = None
 DPI_AWARENESS_CONFIGURED = False
 WINDOW_GEOMETRY_RE = re.compile(r"^(?:(\d+)x(\d+))?([+-]\d+)([+-]\d+)$")
 HICON = getattr(wintypes, "HICON", wintypes.HANDLE)
-HMENU = getattr(wintypes, "HMENU", wintypes.HANDLE)
-UINT_PTR = ctypes.c_size_t
 
 
 class POINT(ctypes.Structure):
@@ -325,29 +313,6 @@ user32.LoadImageW.argtypes = (
 user32.LoadImageW.restype = HICON
 user32.DestroyIcon.argtypes = (HICON,)
 user32.DestroyIcon.restype = wintypes.BOOL
-user32.CreatePopupMenu.argtypes = ()
-user32.CreatePopupMenu.restype = HMENU
-user32.AppendMenuW.argtypes = (HMENU, wintypes.UINT, UINT_PTR, wintypes.LPCWSTR)
-user32.AppendMenuW.restype = wintypes.BOOL
-user32.TrackPopupMenu.argtypes = (
-    HMENU,
-    wintypes.UINT,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    wintypes.HWND,
-    ctypes.c_void_p,
-)
-user32.TrackPopupMenu.restype = wintypes.UINT
-user32.DestroyMenu.argtypes = (HMENU,)
-user32.DestroyMenu.restype = wintypes.BOOL
-user32.PostMessageW.argtypes = (
-    wintypes.HWND,
-    wintypes.UINT,
-    wintypes.WPARAM,
-    wintypes.LPARAM,
-)
-user32.PostMessageW.restype = wintypes.BOOL
 user32.RegisterWindowMessageW.argtypes = (wintypes.LPCWSTR,)
 user32.RegisterWindowMessageW.restype = wintypes.UINT
 user32.CallWindowProcW.argtypes = (
@@ -1308,6 +1273,7 @@ class WindowsTrayIcon:
         self.added = False
         self.menu_open = False
         self.menu_pending = False
+        self.current_menu = None
         self.old_wndproc = None
         self.wndproc = WindowProc(self._window_proc)
         self.taskbar_created_message = user32.RegisterWindowMessageW("TaskbarCreated")
@@ -1408,58 +1374,118 @@ class WindowsTrayIcon:
         if self.menu_open or self.menu_pending:
             return
         self.menu_pending = True
-        self.root.after(1, self.show_menu)
+        self.root.after(50, self.show_menu)
 
     def show_menu(self):
         self.menu_pending = False
         if self.menu_open:
+            if self.current_menu is not None:
+                self._finish_menu(self.current_menu, destroy=True)
             return
         self.menu_open = True
-        command = 0
-        menu = user32.CreatePopupMenu()
-        if not menu:
-            self.menu_open = False
-            return
+        popup = None
         try:
             note_visible = self.app.visible and self.app.root.state() != "withdrawn"
             toggle_label = "隐藏便签" if note_visible else "显示便签"
-            user32.AppendMenuW(menu, MF_STRING, TRAY_MENU_TOGGLE, toggle_label)
-            user32.AppendMenuW(menu, MF_STRING, TRAY_MENU_SETTINGS, "设置")
-            user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
-            user32.AppendMenuW(menu, MF_STRING, TRAY_MENU_EXIT, "退出")
+            popup = tk.Toplevel(self.root)
+            popup.withdraw()
+            popup.overrideredirect(True)
+            popup.attributes("-topmost", True)
+            popup.configure(
+                bg="#ffffff",
+                highlightbackground="#cfd8e6",
+                highlightcolor="#cfd8e6",
+                highlightthickness=1,
+            )
+            self.current_menu = popup
+
+            def add_menu_item(label, callback):
+                item = tk.Label(
+                    popup,
+                    text=label,
+                    anchor="w",
+                    bg="#ffffff",
+                    fg=UI_HEADER_TEXT,
+                    padx=16,
+                    pady=8,
+                    font=("Microsoft YaHei UI", 10),
+                    cursor="hand2",
+                )
+                item.pack(fill="x")
+                item.bind("<Enter>", lambda _event: item.configure(bg="#eaf2ff"))
+                item.bind("<Leave>", lambda _event: item.configure(bg="#ffffff"))
+                item.bind(
+                    "<ButtonRelease-1>",
+                    lambda _event: self._run_menu_command(popup, callback),
+                )
+
+            add_menu_item(toggle_label, self.app.toggle_from_tray)
+            add_menu_item("设置", self.app.show_settings_from_tray)
+            tk.Frame(popup, height=1, bg="#e5eaf2").pack(fill="x", pady=2)
+            add_menu_item("退出", self.app.quit_app)
+            popup.bind(
+                "<Escape>",
+                lambda _event: self._finish_menu(popup, destroy=True),
+                add="+",
+            )
+            popup.bind(
+                "<FocusOut>",
+                lambda _event: popup.after(
+                    120,
+                    lambda: self._finish_menu(popup, destroy=True),
+                ),
+                add="+",
+            )
 
             point = POINT()
-            user32.GetCursorPos(ctypes.byref(point))
-            user32.SetForegroundWindow(self.hwnd)
-            # Do not pass TPM_RIGHTBUTTON here. Near the bottom taskbar, Windows
-            # may open the menu upward under the cursor; allowing right-click
-            # selection can turn the opening click into an accidental Exit.
-            command = user32.TrackPopupMenu(
-                menu,
-                TPM_RETURNCMD | TPM_NONOTIFY,
-                point.x,
-                point.y,
-                0,
-                self.hwnd,
-                None,
-            )
-            log(f"tray menu command: {command}")
-            user32.PostMessageW(self.hwnd, WM_NULL, 0, 0)
+            if user32.GetCursorPos(ctypes.byref(point)):
+                x, y = point.x, point.y
+            else:
+                x, y = self.root.winfo_pointerx(), self.root.winfo_pointery()
+            popup.update_idletasks()
+            width = popup.winfo_reqwidth()
+            height = popup.winfo_reqheight()
+            left = user32.GetSystemMetrics(SM_XVIRTUALSCREEN)
+            top = user32.GetSystemMetrics(SM_YVIRTUALSCREEN)
+            right = left + user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)
+            bottom = top + user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)
+            x = min(max(x, left), right - width)
+            if y + height > bottom:
+                y = y - height
+            y = min(max(y, top), bottom - height)
+            popup.geometry(f"{width}x{height}+{x}+{y}")
+            popup.deiconify()
+            popup.lift()
+            popup.focus_force()
+            popup.after(15000, lambda: self._finish_menu(popup, destroy=True))
+            log(f"tray tk popup menu shown at {x},{y}")
         except Exception as exc:
             log(f"tray menu failed: {exc}")
-        finally:
-            user32.DestroyMenu(menu)
-            self.menu_open = False
+            if popup is not None:
+                self._finish_menu(popup, destroy=True)
+            else:
+                self.menu_open = False
 
-        if command == TRAY_MENU_TOGGLE:
-            self.root.after(0, self.app.toggle_from_tray)
-        elif command == TRAY_MENU_SETTINGS:
-            self.root.after(0, self.app.show_settings_from_tray)
-        elif command == TRAY_MENU_EXIT:
-            log("tray menu exit selected")
-            self.root.after(0, self.app.quit_app)
+    def _run_menu_command(self, popup, callback):
+        self._finish_menu(popup, destroy=True)
+        self.root.after(0, callback)
+
+    def _finish_menu(self, popup, destroy=False):
+        if self.current_menu is not popup:
+            return
+        self.current_menu = None
+        self.menu_open = False
+        if not destroy:
+            return
+        try:
+            if popup.winfo_exists():
+                popup.destroy()
+        except tk.TclError:
+            pass
 
     def destroy(self):
+        if self.current_menu is not None:
+            self._finish_menu(self.current_menu, destroy=True)
         self._delete_icon()
         self._restore_window_proc()
         if self.hicon:
