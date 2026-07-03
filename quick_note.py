@@ -21,7 +21,7 @@ from PIL import Image, ImageGrab, ImageOps
 
 
 APP_NAME = "Quick Side Note"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 NOTE_DIR = Path.home() / "Documents" / "QuickSideNote"
 NOTE_FILE = NOTE_DIR / "note.txt"
 DEFAULT_NOTE_PAGES = (
@@ -1504,8 +1504,10 @@ class QuickNoteApp:
         dialog.configure(bg=UI_DIALOG_BG)
         dialog.transient(self.root)
 
-        dialog_width = 760
-        dialog_height = 500
+        dialog_width = 820
+        dialog_height = 640
+        dialog_min_width = 760
+        dialog_min_height = 540
         section_key = initial_section if initial_section in {"api", "input", "startup", "about"} else "api"
         if first_run:
             section_key = "api"
@@ -1540,7 +1542,7 @@ class QuickNoteApp:
         right.grid_columnconfigure(0, weight=1)
         right.grid_rowconfigure(1, weight=1)
 
-        header = tk.Frame(right, bg=UI_DIALOG_BG, padx=24, pady=18)
+        header = tk.Frame(right, bg=UI_DIALOG_BG, padx=20, pady=12)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
@@ -1552,7 +1554,7 @@ class QuickNoteApp:
             bg=UI_DIALOG_BG,
             fg=UI_HEADER_TEXT,
             anchor="w",
-            font=("Microsoft YaHei UI", 16, "bold"),
+            font=("Microsoft YaHei UI", 15, "bold"),
         ).grid(row=0, column=0, sticky="ew")
         tk.Label(
             header,
@@ -1561,7 +1563,7 @@ class QuickNoteApp:
             fg=UI_MUTED_TEXT,
             anchor="w",
             justify="left",
-            wraplength=480,
+            wraplength=540,
             font=("Microsoft YaHei UI", 9),
         ).grid(row=1, column=0, sticky="ew", pady=(5, 0))
 
@@ -1572,14 +1574,14 @@ class QuickNoteApp:
             highlightbackground=UI_DIVIDER,
             highlightcolor=UI_DIVIDER,
         )
-        content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 20))
+        content.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 12))
         content.grid_columnconfigure(0, weight=1)
         content.grid_rowconfigure(0, weight=1)
 
         tk.Frame(dialog, bg=UI_DIVIDER, height=1).grid(
             row=1, column=0, columnspan=2, sticky="ew"
         )
-        footer = tk.Frame(dialog, bg=UI_DIALOG_BG, padx=18, pady=13)
+        footer = tk.Frame(dialog, bg=UI_DIALOG_BG, padx=20, pady=8)
         footer.grid(row=2, column=0, columnspan=2, sticky="ew")
 
         def make_button(parent, text, command, primary=False):
@@ -1610,11 +1612,56 @@ class QuickNoteApp:
             )
 
         def make_page():
-            page = tk.Frame(content, bg=UI_SETTINGS_PANEL_BG, padx=24, pady=22)
+            page = tk.Frame(content, bg=UI_SETTINGS_PANEL_BG, padx=20, pady=10)
             page.grid(row=0, column=0, sticky="nsew")
             page.grid_columnconfigure(0, weight=1)
             page.grid_remove()
             return page
+
+        def make_scrollable(parent):
+            parent.grid_rowconfigure(0, weight=1)
+            parent.grid_columnconfigure(0, weight=1)
+            canvas = tk.Canvas(
+                parent,
+                bg=UI_SETTINGS_PANEL_BG,
+                bd=0,
+                highlightthickness=0,
+            )
+            scrollbar = tk.Scrollbar(
+                parent,
+                orient="vertical",
+                command=canvas.yview,
+                bd=0,
+                highlightthickness=0,
+            )
+            inner = tk.Frame(canvas, bg=UI_SETTINGS_PANEL_BG)
+            inner_window = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+            def sync_width(event):
+                canvas.itemconfigure(inner_window, width=event.width)
+                canvas.configure(scrollregion=canvas.bbox("all"))
+
+            def sync_region(_event=None):
+                canvas.configure(scrollregion=canvas.bbox("all"))
+
+            def on_wheel(event):
+                canvas.yview_scroll(int(-event.delta / 120), "units")
+
+            def bind_wheel(_event):
+                canvas.bind_all("<MouseWheel>", on_wheel)
+
+            def unbind_wheel(_event):
+                canvas.unbind_all("<MouseWheel>")
+
+            canvas.bind("<Configure>", sync_width)
+            inner.bind("<Configure>", sync_region)
+            canvas.bind("<Enter>", bind_wheel)
+            canvas.bind("<Leave>", unbind_wheel)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            canvas.grid(row=0, column=0, sticky="nsew")
+            scrollbar.grid(row=0, column=1, sticky="ns", padx=(8, 0))
+            inner.grid_columnconfigure(0, weight=1)
+            return inner
 
         def make_section(parent, row, text, detail=None):
             tk.Label(
@@ -1624,7 +1671,7 @@ class QuickNoteApp:
                 fg=UI_HEADER_TEXT,
                 anchor="w",
                 font=("Microsoft YaHei UI", 10, "bold"),
-            ).grid(row=row, column=0, sticky="ew", pady=(0, 4))
+            ).grid(row=row, column=0, sticky="ew", pady=(0, 2))
             if detail:
                 tk.Label(
                     parent,
@@ -1633,9 +1680,9 @@ class QuickNoteApp:
                     fg=UI_MUTED_TEXT,
                     anchor="w",
                     justify="left",
-                    wraplength=470,
+                    wraplength=480,
                     font=("Microsoft YaHei UI", 8),
-                ).grid(row=row + 1, column=0, sticky="ew", pady=(0, 12))
+                ).grid(row=row + 1, column=0, sticky="ew", pady=(0, 6))
                 return row + 2
             return row + 1
 
@@ -1651,6 +1698,8 @@ class QuickNoteApp:
                 activeforeground=UI_TEXT,
                 selectcolor=UI_SETTINGS_PANEL_BG,
                 anchor="w",
+                justify="left",
+                wraplength=480,
                 font=("Microsoft YaHei UI", 9),
             )
 
@@ -1666,6 +1715,8 @@ class QuickNoteApp:
                 activeforeground=UI_TEXT,
                 selectcolor=UI_SETTINGS_PANEL_BG,
                 anchor="w",
+                justify="left",
+                wraplength=480,
                 font=("Microsoft YaHei UI", 9),
             )
 
@@ -1734,38 +1785,39 @@ class QuickNoteApp:
 
         input_page = make_page()
         pages["input"] = input_page
+        input_body = make_scrollable(input_page)
         input_row = make_section(
-            input_page,
+            input_body,
             0,
             "侧键",
-            "选择用于框选识别的鼠标侧键。再次按侧键或按 Esc 可取消框选。",
+            "选择用于框选识别的鼠标侧键。框选中再次按侧键或 Esc 可取消。",
         )
         for key, option in SIDE_BUTTON_OPTIONS.items():
             text = f"{option['label']}（{option['detail']}）"
-            radio = make_radio(input_page, text, side_button_var, key)
-            radio.grid(row=input_row, column=0, sticky="w", pady=(0, 6))
+            radio = make_radio(input_body, text, side_button_var, key)
+            radio.grid(row=input_row, column=0, sticky="w", pady=(0, 2))
             input_row += 1
 
-        tk.Frame(input_page, bg=UI_DIVIDER, height=1).grid(
-            row=input_row, column=0, sticky="ew", pady=(10, 14)
+        tk.Frame(input_body, bg=UI_DIVIDER, height=1).grid(
+            row=input_row, column=0, sticky="ew", pady=(4, 6)
         )
         input_row += 1
 
-        input_row = make_section(input_page, input_row, "浏览器侧键拦截")
+        input_row = make_section(input_body, input_row, "浏览器侧键拦截")
         block_browser = make_check(
-            input_page,
-            "拦截对应的浏览器后退/前进键，避免侧键触发页面跳转",
+            input_body,
+            "拦截浏览器后退/前进键，避免页面跳转",
             block_browser_var,
         )
-        block_browser.grid(row=input_row, column=0, sticky="w", pady=(0, 12))
+        block_browser.grid(row=input_row, column=0, sticky="w", pady=(0, 6))
         input_row += 1
 
-        input_row = make_section(input_page, input_row, "双击判定间隔")
+        input_row = make_section(input_body, input_row, "双击判定间隔")
 
         def update_double_click_label(_value=None):
             double_click_value_var.set(f"{int(double_click_var.get())} ms")
 
-        delay_row = tk.Frame(input_page, bg=UI_SETTINGS_PANEL_BG)
+        delay_row = tk.Frame(input_body, bg=UI_SETTINGS_PANEL_BG)
         delay_row.grid(row=input_row, column=0, sticky="ew")
         delay_row.grid_columnconfigure(0, weight=1)
         double_click_scale = tk.Scale(
@@ -1794,15 +1846,15 @@ class QuickNoteApp:
             font=("Consolas", 9),
         ).grid(row=0, column=1, sticky="e", padx=(10, 0))
         tk.Label(
-            input_page,
+            input_body,
             text="固定快捷键：Ctrl+S 保存，Esc 隐藏，Ctrl+L 清空，Ctrl+K API，Ctrl+, 设置，Ctrl+Q 退出。",
             bg=UI_SETTINGS_PANEL_BG,
             fg=UI_MUTED_TEXT,
             anchor="w",
             justify="left",
-            wraplength=470,
+            wraplength=480,
             font=("Microsoft YaHei UI", 8),
-        ).grid(row=input_row + 1, column=0, sticky="ew", pady=(10, 0))
+        ).grid(row=input_row + 1, column=0, sticky="ew", pady=(6, 0))
 
         startup_page = make_page()
         pages["startup"] = startup_page
@@ -1880,7 +1932,7 @@ class QuickNoteApp:
 
         section_meta = {
             "api": ("API", "翻译 API", "配置 DeepSeek API Key 后即可开始翻译。"),
-            "input": ("输入", "侧键和快捷操作", "管理触发侧键、浏览器键拦截和双击判定间隔。"),
+            "input": ("输入", "侧键和快捷操作", "管理触发侧键、浏览器键拦截和双击间隔。"),
             "startup": ("开机启动", "开机启动", "控制登录 Windows 后是否自动启动 Quick Side Note。"),
             "about": ("关于", "关于此应用", "查看版本、数据目录和日志位置。"),
         }
@@ -2001,6 +2053,7 @@ class QuickNoteApp:
         dialog.protocol("WM_DELETE_WINDOW", close_dialog)
         dialog.bind("<Escape>", lambda _event: close_dialog())
         dialog.update_idletasks()
+        dialog.minsize(dialog_min_width, dialog_min_height)
         root_x = self.root.winfo_x()
         root_y = self.root.winfo_y()
         root_w = max(self.root.winfo_width(), WINDOW_WIDTH)

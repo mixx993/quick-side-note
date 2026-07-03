@@ -1,7 +1,7 @@
 ﻿Quick Side Note 侧键便签
 
 安装方式：
-  双击 QuickSideNote_Setup_v1.3.0.exe，根据安装向导完成安装。
+  双击 QuickSideNote_Setup_v1.3.1.exe，根据安装向导完成安装。
   默认安装到当前 Windows 用户目录，不需要管理员权限。
   安装完成后，可以从开始菜单启动 Quick Side Note。
 
