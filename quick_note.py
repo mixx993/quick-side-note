@@ -21,6 +21,7 @@ from PIL import Image, ImageGrab, ImageOps
 
 
 APP_NAME = "Quick Side Note"
+APP_VERSION = "1.3.0"
 NOTE_DIR = Path.home() / "Documents" / "QuickSideNote"
 NOTE_FILE = NOTE_DIR / "note.txt"
 DEFAULT_NOTE_PAGES = (
@@ -80,36 +81,44 @@ PAGE_LABEL_FONT = ("Microsoft YaHei UI", 9)
 PAGE_ADD_FONT = ("Microsoft YaHei UI", 11)
 RESIZE_GRIP_SIZE = 18
 PLACEHOLDER_TEXT = "随手记点什么..."
-UI_BORDER = "#d7dee8"
-UI_SHELL_BG = "#f4f7fb"
-UI_HEADER_BG = "#fbfcfe"
-UI_HEADER_TEXT = "#1f2a3a"
+UI_BORDER = "#cfd8e6"
+UI_SHELL_BG = "#eef3f8"
+UI_HEADER_BG = "#ffffff"
+UI_HEADER_TEXT = "#182230"
 UI_PAPER_BG = "#ffffff"
-UI_PAPER_BORDER = "#e5ebf2"
-UI_TEXT = "#172033"
+UI_PAPER_BORDER = "#dfe7f1"
+UI_TEXT = "#182230"
 UI_MUTED_TEXT = "#667085"
-UI_SELECTION_BG = "#d8e8ff"
+UI_SELECTION_BG = "#dbeafe"
 UI_SELECTION_FG = "#10223a"
 UI_INSERT = "#2563eb"
 UI_RESIZE_GRIP = "#9aa8b8"
 UI_ACCENT = "#2563eb"
 UI_ACCENT_SOFT = "#e8f1ff"
-UI_ACCENT_HOVER = "#dceafe"
-UI_PAGE_HOVER_BG = "#eef5ff"
+UI_ACCENT_HOVER = "#dbeafe"
+UI_ACCENT_ACTIVE = "#1d4ed8"
+UI_PAGE_HOVER_BG = "#f1f5f9"
 UI_ACTIVE_PAGE_BG = UI_ACCENT_SOFT
 UI_ACTIVE_PAGE_FG = UI_ACCENT
 UI_INACTIVE_PAGE_BG = UI_SHELL_BG
 UI_INACTIVE_PAGE_FG = "#526173"
 UI_TOAST_BG = "#17202a"
 UI_TOAST_FG = "#f8fafc"
-UI_DIALOG_BG = "#f6f8fb"
+UI_DIALOG_BG = "#f8fafc"
 UI_CARD_BG = "#ffffff"
-UI_DIVIDER = "#e8edf4"
+UI_DIVIDER = "#e2e8f0"
 UI_FIELD_BG = "#fbfdff"
 UI_SUCCESS = "#0f8f6f"
 UI_WARNING = "#d97706"
 UI_DANGER = "#b42318"
 UI_DISABLED_BG = "#eef2f7"
+UI_HEADER_BUTTON_HOVER = "#eef2f7"
+UI_CLOSE_HOVER_BG = "#fee2e2"
+UI_CLOSE_HOVER_FG = "#b42318"
+UI_NAV_BG = "#f1f5f9"
+UI_NAV_ACTIVE_BG = "#ffffff"
+UI_NAV_HOVER_BG = "#e8eef7"
+UI_SETTINGS_PANEL_BG = "#ffffff"
 EVENT_DEBOUNCE_SECONDS = 0.05
 DOUBLE_CLICK_SECONDS = 0.3
 CODEX_TIMEOUT_SECONDS = 25
@@ -1229,16 +1238,16 @@ class QuickNoteApp:
         self.browser_key_hook.stop()
 
     def _build_ui(self):
-        shell = tk.Frame(self.root, bg=UI_SHELL_BG, padx=8, pady=8)
+        shell = tk.Frame(self.root, bg=UI_SHELL_BG, padx=7, pady=7)
         shell.pack(fill="both", expand=True, padx=1, pady=1)
 
-        header = tk.Frame(shell, bg=UI_HEADER_BG, height=32)
+        header = tk.Frame(shell, bg=UI_HEADER_BG, height=34)
         header.pack(fill="x")
         header.pack_propagate(False)
         self._bind_move_handle(header)
 
-        accent = tk.Frame(header, bg=UI_ACCENT, width=3)
-        accent.pack(side="left", fill="y", padx=(0, 9))
+        accent = tk.Frame(header, bg=UI_ACCENT, width=4)
+        accent.pack(side="left", fill="y", padx=(0, 10))
 
         self.page_title_label = tk.Label(
             header,
@@ -1258,7 +1267,7 @@ class QuickNoteApp:
             bg=UI_HEADER_BG,
             fg=UI_MUTED_TEXT,
             bd=0,
-            width=3,
+            width=4,
             anchor="center",
             cursor="hand2",
             font=("Segoe UI Symbol", 12),
@@ -1274,7 +1283,7 @@ class QuickNoteApp:
             bg=UI_HEADER_BG,
             fg=UI_MUTED_TEXT,
             bd=0,
-            width=3,
+            width=4,
             anchor="center",
             cursor="hand2",
             font=("Microsoft YaHei UI", 12),
@@ -1285,10 +1294,10 @@ class QuickNoteApp:
         self.hide_button.bind("<Leave>", lambda _event: self._set_hide_hover(False))
 
         body = tk.Frame(shell, bg=UI_SHELL_BG)
-        body.pack(fill="both", expand=True, pady=(8, 0))
+        body.pack(fill="both", expand=True, pady=(7, 0))
 
         self.page_rail = tk.Frame(body, bg=UI_SHELL_BG, width=self._page_rail_width())
-        self.page_rail.pack(side="left", fill="y", padx=(0, 8))
+        self.page_rail.pack(side="left", fill="y", padx=(0, 7))
         self.page_rail.pack_propagate(False)
 
         self._rebuild_page_tabs()
@@ -1303,8 +1312,8 @@ class QuickNoteApp:
             relief="flat",
             bd=0,
             highlightthickness=0,
-            padx=16,
-            pady=14,
+            padx=18,
+            pady=16,
             font=("Microsoft YaHei UI", 11),
             bg=UI_PAPER_BG,
             fg=UI_TEXT,
@@ -1495,112 +1504,95 @@ class QuickNoteApp:
         dialog.configure(bg=UI_DIALOG_BG)
         dialog.transient(self.root)
 
-        frame = tk.Frame(dialog, bg=UI_DIALOG_BG, padx=20, pady=18)
-        frame.pack(fill="both", expand=True)
+        dialog_width = 760
+        dialog_height = 500
+        section_key = initial_section if initial_section in {"api", "input", "startup", "about"} else "api"
+        if first_run:
+            section_key = "api"
 
-        title_text = "首次运行设置" if first_run else "设置"
-        title = tk.Label(
-            frame,
-            text=title_text,
+        dialog.grid_columnconfigure(1, weight=1)
+        dialog.grid_rowconfigure(0, weight=1)
+
+        nav = tk.Frame(dialog, bg=UI_NAV_BG, width=188)
+        nav.grid(row=0, column=0, sticky="ns")
+        nav.grid_propagate(False)
+        nav.grid_columnconfigure(0, weight=1)
+
+        tk.Label(
+            nav,
+            text="Quick Note",
+            bg=UI_NAV_BG,
+            fg=UI_HEADER_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 10, "bold"),
+        ).grid(row=0, column=0, sticky="ew", padx=16, pady=(18, 2))
+        tk.Label(
+            nav,
+            text=f"v{APP_VERSION}",
+            bg=UI_NAV_BG,
+            fg=UI_MUTED_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 8),
+        ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 14))
+
+        right = tk.Frame(dialog, bg=UI_DIALOG_BG)
+        right.grid(row=0, column=1, sticky="nsew")
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(1, weight=1)
+
+        header = tk.Frame(right, bg=UI_DIALOG_BG, padx=24, pady=18)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_columnconfigure(0, weight=1)
+
+        title_var = tk.StringVar(value="")
+        subtitle_var = tk.StringVar(value="")
+        tk.Label(
+            header,
+            textvariable=title_var,
             bg=UI_DIALOG_BG,
             fg=UI_HEADER_TEXT,
             anchor="w",
-            font=("Microsoft YaHei UI", 14, "bold"),
-        )
-        title.pack(fill="x")
-
-        subtitle = (
-            "配置 DeepSeek API Key 后即可开始翻译。其他选项可以稍后再调整。"
-            if first_run
-            else "管理 API、启动项和侧键行为。保存后立即生效。"
-        )
-        description = tk.Label(
-            frame,
-            text=subtitle,
+            font=("Microsoft YaHei UI", 16, "bold"),
+        ).grid(row=0, column=0, sticky="ew")
+        tk.Label(
+            header,
+            textvariable=subtitle_var,
             bg=UI_DIALOG_BG,
-            fg=UI_INACTIVE_PAGE_FG,
+            fg=UI_MUTED_TEXT,
             anchor="w",
             justify="left",
+            wraplength=480,
             font=("Microsoft YaHei UI", 9),
+        ).grid(row=1, column=0, sticky="ew", pady=(5, 0))
+
+        content = tk.Frame(
+            right,
+            bg=UI_SETTINGS_PANEL_BG,
+            highlightthickness=1,
+            highlightbackground=UI_DIVIDER,
+            highlightcolor=UI_DIVIDER,
         )
-        description.pack(fill="x", pady=(5, 14))
+        content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 20))
+        content.grid_columnconfigure(0, weight=1)
+        content.grid_rowconfigure(0, weight=1)
 
-        def make_card(parent, title_text, status_text=None, status_color=UI_MUTED_TEXT):
-            card = tk.Frame(
-                parent,
-                bg=UI_CARD_BG,
-                bd=0,
-                highlightthickness=1,
-                highlightbackground=UI_DIVIDER,
-                padx=14,
-                pady=12,
-            )
-            card.pack(fill="x", pady=(0, 10))
-
-            header = tk.Frame(card, bg=UI_CARD_BG)
-            header.pack(fill="x", pady=(0, 8))
-            heading = tk.Label(
-                header,
-                text=title_text,
-                bg=UI_CARD_BG,
-                fg=UI_HEADER_TEXT,
-                anchor="w",
-                font=("Microsoft YaHei UI", 10, "bold"),
-            )
-            heading.pack(side="left")
-            if status_text is not None:
-                status = tk.Label(
-                    header,
-                    text=status_text,
-                    bg=UI_FIELD_BG,
-                    fg=status_color,
-                    padx=8,
-                    pady=2,
-                    font=("Microsoft YaHei UI", 8),
-                )
-                status.pack(side="right")
-            return card
-
-        def make_row(parent, label_text, pady=(0, 8)):
-            row = tk.Frame(parent, bg=UI_CARD_BG)
-            row.pack(fill="x", pady=pady)
-            label = tk.Label(
-                row,
-                text=label_text,
-                bg=UI_CARD_BG,
-                fg=UI_INACTIVE_PAGE_FG,
-                anchor="w",
-                width=10,
-                font=("Microsoft YaHei UI", 9),
-            )
-            label.pack(side="left")
-            content = tk.Frame(row, bg=UI_CARD_BG)
-            content.pack(side="left", fill="x", expand=True)
-            return content
-
-        def make_hint(parent, text):
-            hint = tk.Label(
-                parent,
-                text=text,
-                bg=UI_CARD_BG,
-                fg=UI_MUTED_TEXT,
-                anchor="w",
-                justify="left",
-                wraplength=500,
-                font=("Microsoft YaHei UI", 8),
-            )
-            hint.pack(fill="x", pady=(2, 0))
-            return hint
+        tk.Frame(dialog, bg=UI_DIVIDER, height=1).grid(
+            row=1, column=0, columnspan=2, sticky="ew"
+        )
+        footer = tk.Frame(dialog, bg=UI_DIALOG_BG, padx=18, pady=13)
+        footer.grid(row=2, column=0, columnspan=2, sticky="ew")
 
         def make_button(parent, text, command, primary=False):
             if primary:
                 bg = UI_ACCENT
                 fg = "#ffffff"
-                active_bg = "#1d4ed8"
+                active_bg = UI_ACCENT_ACTIVE
+                active_fg = "#ffffff"
             else:
                 bg = UI_ACCENT_SOFT
                 fg = UI_ACCENT
                 active_bg = UI_ACCENT_HOVER
+                active_fg = UI_ACCENT
             return tk.Button(
                 parent,
                 text=text,
@@ -1608,39 +1600,101 @@ class QuickNoteApp:
                 bg=bg,
                 fg=fg,
                 activebackground=active_bg,
-                activeforeground=fg,
+                activeforeground=active_fg,
                 relief="flat",
                 bd=0,
-                padx=14,
-                pady=6,
+                padx=16,
+                pady=7,
+                cursor="hand2",
                 font=("Microsoft YaHei UI", 9),
             )
 
-        def make_check(parent, text, variable):
+        def make_page():
+            page = tk.Frame(content, bg=UI_SETTINGS_PANEL_BG, padx=24, pady=22)
+            page.grid(row=0, column=0, sticky="nsew")
+            page.grid_columnconfigure(0, weight=1)
+            page.grid_remove()
+            return page
+
+        def make_section(parent, row, text, detail=None):
+            tk.Label(
+                parent,
+                text=text,
+                bg=UI_SETTINGS_PANEL_BG,
+                fg=UI_HEADER_TEXT,
+                anchor="w",
+                font=("Microsoft YaHei UI", 10, "bold"),
+            ).grid(row=row, column=0, sticky="ew", pady=(0, 4))
+            if detail:
+                tk.Label(
+                    parent,
+                    text=detail,
+                    bg=UI_SETTINGS_PANEL_BG,
+                    fg=UI_MUTED_TEXT,
+                    anchor="w",
+                    justify="left",
+                    wraplength=470,
+                    font=("Microsoft YaHei UI", 8),
+                ).grid(row=row + 1, column=0, sticky="ew", pady=(0, 12))
+                return row + 2
+            return row + 1
+
+        def make_check(parent, text, variable, command=None):
             return tk.Checkbutton(
                 parent,
                 text=text,
                 variable=variable,
-                bg=UI_CARD_BG,
+                command=command,
+                bg=UI_SETTINGS_PANEL_BG,
                 fg=UI_TEXT,
-                activebackground=UI_CARD_BG,
-                selectcolor=UI_CARD_BG,
-                font=("Microsoft YaHei UI", 9),
+                activebackground=UI_SETTINGS_PANEL_BG,
+                activeforeground=UI_TEXT,
+                selectcolor=UI_SETTINGS_PANEL_BG,
                 anchor="w",
+                font=("Microsoft YaHei UI", 9),
+            )
+
+        def make_radio(parent, text, variable, value):
+            return tk.Radiobutton(
+                parent,
+                text=text,
+                value=value,
+                variable=variable,
+                bg=UI_SETTINGS_PANEL_BG,
+                fg=UI_TEXT,
+                activebackground=UI_SETTINGS_PANEL_BG,
+                activeforeground=UI_TEXT,
+                selectcolor=UI_SETTINGS_PANEL_BG,
+                anchor="w",
+                font=("Microsoft YaHei UI", 9),
             )
 
         key_var = tk.StringVar(value=get_user_environment_value("DEEPSEEK_API_KEY"))
-        api_configured = bool(key_var.get())
-        api_section = make_card(
-            frame,
-            "翻译 API",
-            "已配置" if api_configured else "未配置",
-            UI_SUCCESS if api_configured else UI_WARNING,
+        show_key_var = tk.BooleanVar(value=False)
+        startup_var = tk.BooleanVar(value=is_startup_enabled())
+        startup_command = get_startup_registry_value()
+        side_button_var = tk.StringVar(value=self.settings["side_button"])
+        block_browser_var = tk.BooleanVar(value=self.settings["block_browser_key"])
+        double_click_var = tk.IntVar(value=int(self.settings["double_click_ms"]))
+        double_click_value_var = tk.StringVar(value=f"{double_click_var.get()} ms")
+        api_status_var = tk.StringVar(
+            value="DeepSeek 文本翻译使用当前 Windows 用户环境变量。"
         )
+        status_var = tk.StringVar(value="")
 
-        key_row = make_row(api_section, "API Key")
+        pages = {}
+        nav_items = {}
+
+        api_page = make_page()
+        pages["api"] = api_page
+        row = make_section(
+            api_page,
+            0,
+            "翻译 API",
+            "配置 DeepSeek API Key。保存后立即用于 OCR 翻译。",
+        )
         key_entry = tk.Entry(
-            key_row,
+            api_page,
             textvariable=key_var,
             show="*",
             relief="solid",
@@ -1650,146 +1704,267 @@ class QuickNoteApp:
             fg=UI_TEXT,
             insertbackground=UI_INSERT,
         )
-        key_entry.pack(side="left", fill="x", expand=True, ipady=3)
-
-        show_key_var = tk.BooleanVar(value=False)
+        key_entry.grid(row=row, column=0, sticky="ew", ipady=5)
 
         def update_key_visibility():
             key_entry.configure(show="" if show_key_var.get() else "*")
 
-        show_key = tk.Checkbutton(
-            key_row,
-            text="显示",
-            variable=show_key_var,
-            command=update_key_visibility,
-            bg=UI_CARD_BG,
-            fg=UI_INACTIVE_PAGE_FG,
-            activebackground=UI_CARD_BG,
-            selectcolor=UI_CARD_BG,
-            font=("Microsoft YaHei UI", 9),
-        )
-        show_key.pack(side="left", padx=(8, 0))
+        show_key = make_check(api_page, "显示 API Key", show_key_var, update_key_visibility)
+        show_key.grid(row=row + 1, column=0, sticky="w", pady=(10, 0))
 
-        api_status_var = tk.StringVar(
-            value="DeepSeek 文本翻译使用当前 Windows 用户环境变量。"
-        )
         api_status = tk.Label(
-            api_section,
+            api_page,
             textvariable=api_status_var,
-            bg=UI_CARD_BG,
+            bg=UI_SETTINGS_PANEL_BG,
             fg=UI_MUTED_TEXT,
             anchor="w",
             font=("Microsoft YaHei UI", 8),
         )
-        api_status.pack(fill="x", pady=(0, 8))
+        api_status.grid(row=row + 2, column=0, sticky="ew", pady=(12, 0))
 
         def clear_api_key():
             key_var.set("")
             api_status_var.set("保存后会清除当前用户的 DEEPSEEK_API_KEY。")
             api_status.configure(fg=UI_DANGER)
 
-        api_actions = tk.Frame(api_section, bg=UI_CARD_BG)
-        api_actions.pack(fill="x")
+        api_actions = tk.Frame(api_page, bg=UI_SETTINGS_PANEL_BG)
+        api_actions.grid(row=row + 3, column=0, sticky="ew", pady=(16, 0))
         clear_api_button = make_button(api_actions, "清除 Key", clear_api_key)
         clear_api_button.pack(side="right")
 
-        startup_var = tk.BooleanVar(value=is_startup_enabled())
-        startup_command = get_startup_registry_value()
-        startup_section = make_card(
-            frame,
-            "开机启动",
-            "已启用" if startup_command else "未启用",
-            UI_SUCCESS if startup_command else UI_MUTED_TEXT,
+        input_page = make_page()
+        pages["input"] = input_page
+        input_row = make_section(
+            input_page,
+            0,
+            "侧键",
+            "选择用于框选识别的鼠标侧键。再次按侧键或按 Esc 可取消框选。",
         )
-        startup_row = make_row(startup_section, "启动项", pady=(0, 4))
-        startup_check = make_check(
-            startup_row,
-            "登录 Windows 后自动启动",
-            startup_var,
-        )
-        startup_check.pack(anchor="w")
-        make_hint(
-            startup_section,
-            "保存后写入当前用户启动项，不需要管理员权限。卸载应用会移除程序文件，便签数据仍保留。",
-        )
+        for key, option in SIDE_BUTTON_OPTIONS.items():
+            text = f"{option['label']}（{option['detail']}）"
+            radio = make_radio(input_page, text, side_button_var, key)
+            radio.grid(row=input_row, column=0, sticky="w", pady=(0, 6))
+            input_row += 1
 
-        shortcut_section = make_card(frame, "侧键和快捷操作")
-        side_button_var = tk.StringVar(value=self.settings["side_button"])
-        side_row = make_row(shortcut_section, "触发侧键", pady=(0, 6))
-        for index, (key, option) in enumerate(SIDE_BUTTON_OPTIONS.items()):
-            radio = tk.Radiobutton(
-                side_row,
-                text=option["label"],
-                value=key,
-                variable=side_button_var,
-                bg=UI_CARD_BG,
-                fg=UI_TEXT,
-                activebackground=UI_CARD_BG,
-                selectcolor=UI_CARD_BG,
-                font=("Microsoft YaHei UI", 9),
-            )
-            radio.pack(side="left", padx=(0, 16 if index == 0 else 0))
+        tk.Frame(input_page, bg=UI_DIVIDER, height=1).grid(
+            row=input_row, column=0, sticky="ew", pady=(10, 14)
+        )
+        input_row += 1
 
-        block_browser_var = tk.BooleanVar(value=self.settings["block_browser_key"])
-        block_row = make_row(shortcut_section, "浏览器键", pady=(0, 6))
+        input_row = make_section(input_page, input_row, "浏览器侧键拦截")
         block_browser = make_check(
-            block_row,
-            "拦截对应后退/前进键，避免浏览器跳转",
+            input_page,
+            "拦截对应的浏览器后退/前进键，避免侧键触发页面跳转",
             block_browser_var,
         )
-        block_browser.pack(anchor="w")
+        block_browser.grid(row=input_row, column=0, sticky="w", pady=(0, 12))
+        input_row += 1
 
-        delay_row = make_row(shortcut_section, "双击间隔", pady=(0, 6))
-        double_click_var = tk.StringVar(value=str(self.settings["double_click_ms"]))
-        double_click_spin = tk.Spinbox(
+        input_row = make_section(input_page, input_row, "双击判定间隔")
+
+        def update_double_click_label(_value=None):
+            double_click_value_var.set(f"{int(double_click_var.get())} ms")
+
+        delay_row = tk.Frame(input_page, bg=UI_SETTINGS_PANEL_BG)
+        delay_row.grid(row=input_row, column=0, sticky="ew")
+        delay_row.grid_columnconfigure(0, weight=1)
+        double_click_scale = tk.Scale(
             delay_row,
             from_=MIN_DOUBLE_CLICK_MS,
             to=MAX_DOUBLE_CLICK_MS,
-            increment=50,
-            textvariable=double_click_var,
-            width=6,
-            relief="solid",
-            bd=1,
-            bg=UI_FIELD_BG,
+            orient="horizontal",
+            resolution=50,
+            variable=double_click_var,
+            command=update_double_click_label,
+            showvalue=False,
+            bg=UI_SETTINGS_PANEL_BG,
             fg=UI_TEXT,
-            buttonbackground=UI_DISABLED_BG,
-            font=("Consolas", 10),
+            activebackground=UI_ACCENT,
+            highlightthickness=0,
+            troughcolor=UI_DISABLED_BG,
         )
-        double_click_spin.pack(side="left", ipady=2)
+        double_click_scale.grid(row=0, column=0, sticky="ew")
         tk.Label(
             delay_row,
-            text="毫秒",
-            bg=UI_CARD_BG,
+            textvariable=double_click_value_var,
+            bg=UI_SETTINGS_PANEL_BG,
             fg=UI_MUTED_TEXT,
-            font=("Microsoft YaHei UI", 9),
-        ).pack(side="left", padx=(6, 0))
-        make_hint(
-            shortcut_section,
-            "固定快捷键：Ctrl+S 保存 · Esc 隐藏 · Ctrl+L 清空 · Ctrl+K API · Ctrl+, 设置 · Ctrl+Q 退出",
+            width=8,
+            anchor="e",
+            font=("Consolas", 9),
+        ).grid(row=0, column=1, sticky="e", padx=(10, 0))
+        tk.Label(
+            input_page,
+            text="固定快捷键：Ctrl+S 保存，Esc 隐藏，Ctrl+L 清空，Ctrl+K API，Ctrl+, 设置，Ctrl+Q 退出。",
+            bg=UI_SETTINGS_PANEL_BG,
+            fg=UI_MUTED_TEXT,
+            anchor="w",
+            justify="left",
+            wraplength=470,
+            font=("Microsoft YaHei UI", 8),
+        ).grid(row=input_row + 1, column=0, sticky="ew", pady=(10, 0))
+
+        startup_page = make_page()
+        pages["startup"] = startup_page
+        startup_row = make_section(
+            startup_page,
+            0,
+            "开机启动",
+            "保存时写入当前用户启动项，不需要管理员权限。",
         )
 
-        status_var = tk.StringVar(value="")
+        startup_status_var = tk.StringVar(value="")
+        startup_status = tk.Label(
+            startup_page,
+            textvariable=startup_status_var,
+            bg=UI_SETTINGS_PANEL_BG,
+            fg=UI_MUTED_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 8),
+        )
+
+        def update_startup_status():
+            if startup_var.get():
+                startup_status_var.set("保存后将启用开机启动。")
+                startup_status.configure(fg=UI_SUCCESS)
+            elif startup_command:
+                startup_status_var.set("保存后将取消当前开机启动项。")
+                startup_status.configure(fg=UI_WARNING)
+            else:
+                startup_status_var.set("当前未启用开机启动。")
+                startup_status.configure(fg=UI_MUTED_TEXT)
+
+        startup_check = make_check(
+            startup_page,
+            "登录 Windows 后自动启动 Quick Side Note",
+            startup_var,
+            update_startup_status,
+        )
+        startup_check.grid(row=startup_row, column=0, sticky="w")
+        startup_status.grid(row=startup_row + 1, column=0, sticky="ew", pady=(12, 0))
+        update_startup_status()
+
+        about_page = make_page()
+        pages["about"] = about_page
+        about_row = make_section(about_page, 0, f"Quick Side Note v{APP_VERSION}")
+        tk.Label(
+            about_page,
+            text="轻量侧键便签工具：本地 OCR 识别屏幕文字，并调用 DeepSeek 完成翻译。",
+            bg=UI_SETTINGS_PANEL_BG,
+            fg=UI_TEXT,
+            anchor="w",
+            justify="left",
+            wraplength=470,
+            font=("Microsoft YaHei UI", 9),
+        ).grid(row=about_row, column=0, sticky="ew", pady=(0, 10))
+        tk.Label(
+            about_page,
+            text=f"数据目录：{NOTE_DIR}",
+            bg=UI_SETTINGS_PANEL_BG,
+            fg=UI_MUTED_TEXT,
+            anchor="w",
+            justify="left",
+            wraplength=470,
+            font=("Microsoft YaHei UI", 8),
+        ).grid(row=about_row + 1, column=0, sticky="ew", pady=(0, 6))
+        tk.Label(
+            about_page,
+            text=f"日志文件：{LOG_FILE}",
+            bg=UI_SETTINGS_PANEL_BG,
+            fg=UI_MUTED_TEXT,
+            anchor="w",
+            justify="left",
+            wraplength=470,
+            font=("Microsoft YaHei UI", 8),
+        ).grid(row=about_row + 2, column=0, sticky="ew")
+
+        section_meta = {
+            "api": ("API", "翻译 API", "配置 DeepSeek API Key 后即可开始翻译。"),
+            "input": ("输入", "侧键和快捷操作", "管理触发侧键、浏览器键拦截和双击判定间隔。"),
+            "startup": ("开机启动", "开机启动", "控制登录 Windows 后是否自动启动 Quick Side Note。"),
+            "about": ("关于", "关于此应用", "查看版本、数据目录和日志位置。"),
+        }
+        active_section_var = tk.StringVar(value="")
+
+        def apply_nav_style(active_key):
+            for key, widget in nav_items.items():
+                active = key == active_key
+                widget.configure(
+                    bg=UI_NAV_ACTIVE_BG if active else UI_NAV_BG,
+                    fg=UI_ACCENT if active else UI_INACTIVE_PAGE_FG,
+                    font=("Microsoft YaHei UI", 9, "bold" if active else "normal"),
+                )
+
+        def switch_section(target):
+            if target not in pages:
+                target = "api"
+            for key, page in pages.items():
+                if key == target:
+                    page.grid()
+                else:
+                    page.grid_remove()
+            active_section_var.set(target)
+            apply_nav_style(target)
+            _nav_text, title_text, subtitle_text = section_meta[target]
+            title_var.set(title_text)
+            subtitle_var.set(subtitle_text)
+            if target == "api":
+                dialog.after(60, lambda: (key_entry.focus_set(), key_entry.icursor("end")))
+
+        for index, (key, (nav_text, _title, _subtitle)) in enumerate(section_meta.items(), start=2):
+            item = tk.Label(
+                nav,
+                text=nav_text,
+                bg=UI_NAV_BG,
+                fg=UI_INACTIVE_PAGE_FG,
+                anchor="w",
+                padx=14,
+                pady=9,
+                cursor="hand2",
+                font=("Microsoft YaHei UI", 9),
+            )
+            item.grid(row=index, column=0, sticky="ew", padx=8, pady=2)
+            item.bind("<Button-1>", lambda _event, target=key: switch_section(target))
+            item.bind(
+                "<Enter>",
+                lambda _event, target=key, widget=item: widget.configure(
+                    bg=UI_NAV_HOVER_BG
+                    if active_section_var.get() != target
+                    else UI_NAV_ACTIVE_BG
+                ),
+            )
+            item.bind(
+                "<Leave>",
+                lambda _event, target=key, widget=item: widget.configure(
+                    bg=UI_NAV_ACTIVE_BG
+                    if active_section_var.get() == target
+                    else UI_NAV_BG
+                ),
+            )
+            nav_items[key] = item
+
         status = tk.Label(
-            frame,
+            footer,
             textvariable=status_var,
             bg=UI_DIALOG_BG,
             fg=UI_DANGER,
             anchor="w",
             font=("Microsoft YaHei UI", 9),
         )
-        status.pack(fill="x")
-
-        buttons = tk.Frame(frame, bg=UI_DIALOG_BG)
-        buttons.pack(fill="x", pady=(12, 0))
+        status.pack(side="left", fill="x", expand=True)
 
         def close_dialog():
-            dialog.grab_release()
+            try:
+                dialog.grab_release()
+            except tk.TclError:
+                pass
             dialog.destroy()
 
         def save_settings():
             key = normalize_api_key(key_var.get())
             if key and not is_plausible_api_key(key):
                 status_var.set("API Key 看起来不完整，请检查后再保存。")
+                switch_section("api")
                 return
 
             try:
@@ -1816,29 +1991,25 @@ class QuickNoteApp:
             close_dialog()
             self._show_short_message("设置已保存")
 
-        save_button = make_button(buttons, "保存设置", save_settings, primary=True)
-        save_button.pack(side="right")
+        save_button = make_button(footer, "保存设置", save_settings, primary=True)
+        save_button.pack(side="right", padx=(8, 0))
 
         cancel_text = "稍后再说" if first_run else "取消"
-        cancel_button = make_button(buttons, cancel_text, close_dialog)
-        cancel_button.pack(side="right", padx=(0, 8))
+        cancel_button = make_button(footer, cancel_text, close_dialog)
+        cancel_button.pack(side="right")
 
         dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+        dialog.bind("<Escape>", lambda _event: close_dialog())
         dialog.update_idletasks()
         root_x = self.root.winfo_x()
         root_y = self.root.winfo_y()
         root_w = max(self.root.winfo_width(), WINDOW_WIDTH)
         root_h = max(self.root.winfo_height(), WINDOW_HEIGHT)
-        width = max(dialog.winfo_width(), 560)
-        height = dialog.winfo_height()
-        x = root_x + max(0, (root_w - width) // 2)
-        y = root_y + max(0, (root_h - height) // 2)
-        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        x = root_x + max(0, (root_w - dialog_width) // 2)
+        y = root_y + max(0, (root_h - dialog_height) // 2)
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         dialog.grab_set()
-        if initial_section == "api":
-            key_entry.focus_set()
-        else:
-            dialog.focus_set()
+        switch_section(section_key)
 
     def _page_rail_width(self):
         names = [str(page["name"]) for page in self.note_pages] + ["+"]
@@ -1995,7 +2166,7 @@ class QuickNoteApp:
             self._apply_page_button_style(page, button, hover)
 
     def _apply_add_button_style(self, hover):
-        bg = UI_ACCENT_HOVER if hover else UI_INACTIVE_PAGE_BG
+        bg = UI_NAV_HOVER_BG if hover else UI_INACTIVE_PAGE_BG
         fg = UI_ACCENT if hover else UI_INACTIVE_PAGE_FG
         self.add_page_button.configure(bg=bg, fg=fg)
 
@@ -2006,14 +2177,14 @@ class QuickNoteApp:
     def _set_hide_hover(self, hover):
         if self.hide_button is None:
             return
-        bg = UI_ACCENT_HOVER if hover else UI_HEADER_BG
-        fg = UI_TEXT if hover else UI_MUTED_TEXT
+        bg = UI_CLOSE_HOVER_BG if hover else UI_HEADER_BG
+        fg = UI_CLOSE_HOVER_FG if hover else UI_MUTED_TEXT
         self.hide_button.configure(bg=bg, fg=fg)
 
     def _set_settings_hover(self, hover):
         if self.settings_button is None:
             return
-        bg = UI_ACCENT_HOVER if hover else UI_HEADER_BG
+        bg = UI_HEADER_BUTTON_HOVER if hover else UI_HEADER_BG
         fg = UI_TEXT if hover else UI_MUTED_TEXT
         self.settings_button.configure(bg=bg, fg=fg)
 
