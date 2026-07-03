@@ -113,4 +113,4 @@ python -m unittest tests.test_quick_note_core
 
 ## 许可
 
-当前仓库暂未选择开源许可证。没有许可证时，默认保留全部权利。正式开源前请先补充合适的 `LICENSE` 文件。
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
