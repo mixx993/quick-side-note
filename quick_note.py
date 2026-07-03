@@ -21,7 +21,7 @@ from PIL import Image, ImageGrab, ImageOps
 
 
 APP_NAME = "Quick Side Note"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 NOTE_DIR = Path.home() / "Documents" / "QuickSideNote"
 NOTE_FILE = NOTE_DIR / "note.txt"
 DEFAULT_NOTE_PAGES = (
@@ -1306,6 +1306,8 @@ class WindowsTrayIcon:
         self.hwnd = wintypes.HWND(self.root.winfo_id())
         self.hicon = None
         self.added = False
+        self.menu_open = False
+        self.menu_pending = False
         self.old_wndproc = None
         self.wndproc = WindowProc(self._window_proc)
         self.taskbar_created_message = user32.RegisterWindowMessageW("TaskbarCreated")
@@ -1386,7 +1388,7 @@ class WindowsTrayIcon:
                 self.root.after(0, self.app.toggle_from_tray)
                 return 0
             if tray_event in {WM_RBUTTONUP, WM_CONTEXTMENU}:
-                self.root.after(0, self.show_menu)
+                self._queue_menu()
                 return 0
         if message == self.taskbar_created_message:
             self._delete_icon()
@@ -1402,9 +1404,21 @@ class WindowsTrayIcon:
             )
         return 0
 
+    def _queue_menu(self):
+        if self.menu_open or self.menu_pending:
+            return
+        self.menu_pending = True
+        self.root.after(1, self.show_menu)
+
     def show_menu(self):
+        self.menu_pending = False
+        if self.menu_open:
+            return
+        self.menu_open = True
+        command = 0
         menu = user32.CreatePopupMenu()
         if not menu:
+            self.menu_open = False
             return
         try:
             note_visible = self.app.visible and self.app.root.state() != "withdrawn"
@@ -1417,24 +1431,32 @@ class WindowsTrayIcon:
             point = POINT()
             user32.GetCursorPos(ctypes.byref(point))
             user32.SetForegroundWindow(self.hwnd)
+            # Do not pass TPM_RIGHTBUTTON here. Near the bottom taskbar, Windows
+            # may open the menu upward under the cursor; allowing right-click
+            # selection can turn the opening click into an accidental Exit.
             command = user32.TrackPopupMenu(
                 menu,
-                TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+                TPM_RETURNCMD | TPM_NONOTIFY,
                 point.x,
                 point.y,
                 0,
                 self.hwnd,
                 None,
             )
+            log(f"tray menu command: {command}")
             user32.PostMessageW(self.hwnd, WM_NULL, 0, 0)
+        except Exception as exc:
+            log(f"tray menu failed: {exc}")
         finally:
             user32.DestroyMenu(menu)
+            self.menu_open = False
 
         if command == TRAY_MENU_TOGGLE:
             self.root.after(0, self.app.toggle_from_tray)
         elif command == TRAY_MENU_SETTINGS:
             self.root.after(0, self.app.show_settings_from_tray)
         elif command == TRAY_MENU_EXIT:
+            log("tray menu exit selected")
             self.root.after(0, self.app.quit_app)
 
     def destroy(self):
