@@ -5,9 +5,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$appVersion = "1.3.1"
+$appVersion = "1.4.0"
 $appDir = Join-Path $root "release\QuickSideNote_App_v$appVersion"
-$supportSourceDir = Join-Path $root "release\QuickSideNote_App"
+$docsDir = Join-Path $root "docs"
+$docsImageDir = Join-Path $docsDir "images"
 $setupScript = Join-Path $root "installer\QuickSideNote.iss"
 $pyInstallerSpec = Join-Path $root "QuickSideNote.spec"
 $distExe = Join-Path $root "dist\QuickSideNote.exe"
@@ -43,11 +44,13 @@ if (-not $SkipAppBuild) {
     New-Item -ItemType Directory -Force -Path $appDir | Out-Null
 }
 
-foreach ($supportFile in @("README_RUN.txt", "QuickSideNote_intro.html", "quick_note_ui_preview.png")) {
-    $source = Join-Path $supportSourceDir $supportFile
-    $destination = Join-Path $appDir $supportFile
-    if (Test-Path -LiteralPath $source) {
-        Copy-Item -LiteralPath $source -Destination $destination -Force
+foreach ($supportItem in @(
+    @{ Source = (Join-Path $docsDir "README_RUN.txt"); Destination = (Join-Path $appDir "README_RUN.txt") },
+    @{ Source = (Join-Path $docsDir "QuickSideNote_intro.html"); Destination = (Join-Path $appDir "QuickSideNote_intro.html") },
+    @{ Source = (Join-Path $docsImageDir "quick_note_ui_preview.png"); Destination = (Join-Path $appDir "quick_note_ui_preview.png") }
+)) {
+    if (Test-Path -LiteralPath $supportItem.Source) {
+        Copy-Item -LiteralPath $supportItem.Source -Destination $supportItem.Destination -Force
     }
 }
 

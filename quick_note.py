@@ -21,7 +21,7 @@ from PIL import Image, ImageGrab, ImageOps
 
 
 APP_NAME = "Quick Side Note"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.4.0"
 NOTE_DIR = Path.home() / "Documents" / "QuickSideNote"
 NOTE_FILE = NOTE_DIR / "note.txt"
 DEFAULT_NOTE_PAGES = (
@@ -62,6 +62,31 @@ SWP_NOMOVE = 0x0002
 SWP_SHOWWINDOW = 0x0040
 WM_SETTINGCHANGE = 0x001A
 SMTO_ABORTIFHUNG = 0x0002
+WM_APP = 0x8000
+WM_NULL = 0x0000
+WM_LBUTTONDBLCLK = 0x0203
+WM_RBUTTONUP = 0x0205
+WM_CONTEXTMENU = 0x007B
+WM_TRAYICON = WM_APP + 21
+GWLP_WNDPROC = -4
+IMAGE_ICON = 1
+LR_LOADFROMFILE = 0x0010
+LR_DEFAULTSIZE = 0x0040
+NIM_ADD = 0x00000000
+NIM_MODIFY = 0x00000001
+NIM_DELETE = 0x00000002
+NIF_MESSAGE = 0x00000001
+NIF_ICON = 0x00000002
+NIF_TIP = 0x00000004
+TRAY_ICON_ID = 1
+TRAY_MENU_TOGGLE = 1001
+TRAY_MENU_SETTINGS = 1002
+TRAY_MENU_EXIT = 1003
+MF_STRING = 0x00000000
+MF_SEPARATOR = 0x00000800
+TPM_RIGHTBUTTON = 0x0002
+TPM_RETURNCMD = 0x0100
+TPM_NONOTIFY = 0x0080
 SM_XVIRTUALSCREEN = 76
 SM_YVIRTUALSCREEN = 77
 SM_CXVIRTUALSCREEN = 78
@@ -169,12 +194,16 @@ TEXT_TRANSLATION_SYSTEM_PROMPT = (
 
 
 user32 = ctypes.windll.user32
+shell32 = ctypes.windll.shell32
 kernel32 = ctypes.windll.kernel32
 ULONG_PTR = wintypes.WPARAM
 LRESULT = wintypes.LPARAM
 INSTANCE_MUTEX = None
 DPI_AWARENESS_CONFIGURED = False
 WINDOW_GEOMETRY_RE = re.compile(r"^(?:(\d+)x(\d+))?([+-]\d+)([+-]\d+)$")
+HICON = getattr(wintypes, "HICON", wintypes.HANDLE)
+HMENU = getattr(wintypes, "HMENU", wintypes.HANDLE)
+UINT_PTR = ctypes.c_size_t
 
 
 class POINT(ctypes.Structure):
@@ -209,6 +238,36 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
 LowLevelKeyboardProc = ctypes.WINFUNCTYPE(
     LRESULT, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
 )
+
+
+class NOTIFYICONDATAW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("hWnd", wintypes.HWND),
+        ("uID", wintypes.UINT),
+        ("uFlags", wintypes.UINT),
+        ("uCallbackMessage", wintypes.UINT),
+        ("hIcon", HICON),
+        ("szTip", wintypes.WCHAR * 128),
+        ("dwState", wintypes.DWORD),
+        ("dwStateMask", wintypes.DWORD),
+        ("szInfo", wintypes.WCHAR * 256),
+        ("uTimeoutOrVersion", wintypes.UINT),
+        ("szInfoTitle", wintypes.WCHAR * 64),
+        ("dwInfoFlags", wintypes.DWORD),
+        ("guidItem", ctypes.c_byte * 16),
+        ("hBalloonIcon", HICON),
+    ]
+
+
+WindowProc = ctypes.WINFUNCTYPE(
+    LRESULT,
+    wintypes.HWND,
+    wintypes.UINT,
+    wintypes.WPARAM,
+    wintypes.LPARAM,
+)
+
 
 user32.SetWindowsHookExW.argtypes = (
     ctypes.c_int,
@@ -255,6 +314,66 @@ user32.SetWindowPos.argtypes = (
     wintypes.UINT,
 )
 user32.SetWindowPos.restype = wintypes.BOOL
+user32.LoadImageW.argtypes = (
+    wintypes.HINSTANCE,
+    wintypes.LPCWSTR,
+    wintypes.UINT,
+    ctypes.c_int,
+    ctypes.c_int,
+    wintypes.UINT,
+)
+user32.LoadImageW.restype = HICON
+user32.DestroyIcon.argtypes = (HICON,)
+user32.DestroyIcon.restype = wintypes.BOOL
+user32.CreatePopupMenu.argtypes = ()
+user32.CreatePopupMenu.restype = HMENU
+user32.AppendMenuW.argtypes = (HMENU, wintypes.UINT, UINT_PTR, wintypes.LPCWSTR)
+user32.AppendMenuW.restype = wintypes.BOOL
+user32.TrackPopupMenu.argtypes = (
+    HMENU,
+    wintypes.UINT,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_int,
+    wintypes.HWND,
+    ctypes.c_void_p,
+)
+user32.TrackPopupMenu.restype = wintypes.UINT
+user32.DestroyMenu.argtypes = (HMENU,)
+user32.DestroyMenu.restype = wintypes.BOOL
+user32.PostMessageW.argtypes = (
+    wintypes.HWND,
+    wintypes.UINT,
+    wintypes.WPARAM,
+    wintypes.LPARAM,
+)
+user32.PostMessageW.restype = wintypes.BOOL
+user32.RegisterWindowMessageW.argtypes = (wintypes.LPCWSTR,)
+user32.RegisterWindowMessageW.restype = wintypes.UINT
+user32.CallWindowProcW.argtypes = (
+    ctypes.c_void_p,
+    wintypes.HWND,
+    wintypes.UINT,
+    wintypes.WPARAM,
+    wintypes.LPARAM,
+)
+user32.CallWindowProcW.restype = LRESULT
+if ctypes.sizeof(ctypes.c_void_p) == 8:
+    user32.GetWindowLongPtrW.argtypes = (wintypes.HWND, ctypes.c_int)
+    user32.GetWindowLongPtrW.restype = ctypes.c_void_p
+    user32.SetWindowLongPtrW.argtypes = (
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_void_p,
+    )
+    user32.SetWindowLongPtrW.restype = ctypes.c_void_p
+else:
+    user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+    user32.GetWindowLongW.restype = ctypes.c_void_p
+    user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_void_p)
+    user32.SetWindowLongW.restype = ctypes.c_void_p
+shell32.Shell_NotifyIconW.argtypes = (wintypes.DWORD, ctypes.POINTER(NOTIFYICONDATAW))
+shell32.Shell_NotifyIconW.restype = wintypes.BOOL
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 kernel32.GetLastError.restype = wintypes.DWORD
 kernel32.GetModuleHandleW.argtypes = (wintypes.LPCWSTR,)
@@ -1180,6 +1299,152 @@ class ScreenCaptureOverlay:
             pass
 
 
+class WindowsTrayIcon:
+    def __init__(self, app):
+        self.app = app
+        self.root = app.root
+        self.hwnd = wintypes.HWND(self.root.winfo_id())
+        self.hicon = None
+        self.added = False
+        self.old_wndproc = None
+        self.wndproc = WindowProc(self._window_proc)
+        self.taskbar_created_message = user32.RegisterWindowMessageW("TaskbarCreated")
+        self._install_window_proc()
+        self._add_icon()
+
+    def _install_window_proc(self):
+        callback_ptr = ctypes.cast(self.wndproc, ctypes.c_void_p)
+        if ctypes.sizeof(ctypes.c_void_p) == 8:
+            self.old_wndproc = user32.GetWindowLongPtrW(self.hwnd, GWLP_WNDPROC)
+            user32.SetWindowLongPtrW(self.hwnd, GWLP_WNDPROC, callback_ptr)
+        else:
+            self.old_wndproc = user32.GetWindowLongW(self.hwnd, GWLP_WNDPROC)
+            user32.SetWindowLongW(self.hwnd, GWLP_WNDPROC, callback_ptr)
+
+    def _restore_window_proc(self):
+        if not self.old_wndproc:
+            return
+        try:
+            old_proc = ctypes.c_void_p(self.old_wndproc)
+            if ctypes.sizeof(ctypes.c_void_p) == 8:
+                user32.SetWindowLongPtrW(self.hwnd, GWLP_WNDPROC, old_proc)
+            else:
+                user32.SetWindowLongW(self.hwnd, GWLP_WNDPROC, old_proc)
+        except Exception as exc:
+            log(f"tray window proc restore failed: {exc}")
+        self.old_wndproc = None
+
+    def _load_icon(self):
+        if ICON_FILE.exists():
+            icon = user32.LoadImageW(
+                None,
+                str(ICON_FILE),
+                IMAGE_ICON,
+                0,
+                0,
+                LR_LOADFROMFILE | LR_DEFAULTSIZE,
+            )
+            if icon:
+                return icon
+        return None
+
+    def _notify_data(self):
+        data = NOTIFYICONDATAW()
+        data.cbSize = ctypes.sizeof(NOTIFYICONDATAW)
+        data.hWnd = self.hwnd
+        data.uID = TRAY_ICON_ID
+        data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
+        data.uCallbackMessage = WM_TRAYICON
+        data.hIcon = self.hicon
+        data.szTip = APP_NAME
+        return data
+
+    def _add_icon(self):
+        if self.hicon is None:
+            self.hicon = self._load_icon()
+        if not self.hicon:
+            log("tray icon skipped: icon file could not be loaded")
+            return
+        data = self._notify_data()
+        if shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(data)):
+            self.added = True
+            log("tray icon added")
+        else:
+            log("tray icon add failed")
+
+    def _delete_icon(self):
+        if not self.added:
+            return
+        data = self._notify_data()
+        shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(data))
+        self.added = False
+
+    def _window_proc(self, hwnd, message, wparam, lparam):
+        if message == WM_TRAYICON and int(wparam) == TRAY_ICON_ID:
+            tray_event = int(lparam) & 0xFFFF
+            if tray_event == WM_LBUTTONDBLCLK:
+                self.root.after(0, self.app.toggle_from_tray)
+                return 0
+            if tray_event in {WM_RBUTTONUP, WM_CONTEXTMENU}:
+                self.root.after(0, self.show_menu)
+                return 0
+        if message == self.taskbar_created_message:
+            self._delete_icon()
+            self._add_icon()
+            return 0
+        if self.old_wndproc:
+            return user32.CallWindowProcW(
+                ctypes.c_void_p(self.old_wndproc),
+                hwnd,
+                message,
+                wparam,
+                lparam,
+            )
+        return 0
+
+    def show_menu(self):
+        menu = user32.CreatePopupMenu()
+        if not menu:
+            return
+        try:
+            note_visible = self.app.visible and self.app.root.state() != "withdrawn"
+            toggle_label = "隐藏便签" if note_visible else "显示便签"
+            user32.AppendMenuW(menu, MF_STRING, TRAY_MENU_TOGGLE, toggle_label)
+            user32.AppendMenuW(menu, MF_STRING, TRAY_MENU_SETTINGS, "设置")
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+            user32.AppendMenuW(menu, MF_STRING, TRAY_MENU_EXIT, "退出")
+
+            point = POINT()
+            user32.GetCursorPos(ctypes.byref(point))
+            user32.SetForegroundWindow(self.hwnd)
+            command = user32.TrackPopupMenu(
+                menu,
+                TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+                point.x,
+                point.y,
+                0,
+                self.hwnd,
+                None,
+            )
+            user32.PostMessageW(self.hwnd, WM_NULL, 0, 0)
+        finally:
+            user32.DestroyMenu(menu)
+
+        if command == TRAY_MENU_TOGGLE:
+            self.root.after(0, self.app.toggle_from_tray)
+        elif command == TRAY_MENU_SETTINGS:
+            self.root.after(0, self.app.show_settings_from_tray)
+        elif command == TRAY_MENU_EXIT:
+            self.root.after(0, self.app.quit_app)
+
+    def destroy(self):
+        self._delete_icon()
+        self._restore_window_proc()
+        if self.hicon:
+            user32.DestroyIcon(self.hicon)
+            self.hicon = None
+
+
 class QuickNoteApp:
     def __init__(self):
         NOTE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1197,6 +1462,7 @@ class QuickNoteApp:
         self.page_title_label = None
         self.hide_button = None
         self.settings_button = None
+        self.tray_icon = None
         self.root.geometry(self._load_geometry())
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.overrideredirect(True)
@@ -1229,13 +1495,36 @@ class QuickNoteApp:
 
     def run(self):
         log("app start")
+        self._init_tray_icon()
         self.mouse_hook.start()
         self.browser_key_hook.start()
         if not self.mouse_hook.hook_id:
             pass
-        self.root.mainloop()
-        self.mouse_hook.stop()
-        self.browser_key_hook.stop()
+        try:
+            self.root.mainloop()
+        finally:
+            self._destroy_tray_icon()
+            self.mouse_hook.stop()
+            self.browser_key_hook.stop()
+
+    def _init_tray_icon(self):
+        if sys.platform != "win32" or self.tray_icon is not None:
+            return
+        try:
+            self.root.update_idletasks()
+            self.tray_icon = WindowsTrayIcon(self)
+        except Exception as exc:
+            self.tray_icon = None
+            log(f"tray icon setup failed: {exc}")
+
+    def _destroy_tray_icon(self):
+        if self.tray_icon is None:
+            return
+        try:
+            self.tray_icon.destroy()
+        except Exception as exc:
+            log(f"tray icon cleanup failed: {exc}")
+        self.tray_icon = None
 
     def _build_ui(self):
         shell = tk.Frame(self.root, bg=UI_SHELL_BG, padx=7, pady=7)
@@ -1354,7 +1643,7 @@ class QuickNoteApp:
         self.root.bind("<Control-l>", lambda _event: self._clear_note())
         self.root.bind("<Control-k>", lambda _event: self._show_settings_dialog("api"))
         self.root.bind("<Control-comma>", lambda _event: self._show_settings_dialog())
-        self.root.bind("<Control-q>", lambda _event: self.root.destroy())
+        self.root.bind("<Control-q>", lambda _event: self.quit_app())
         self.root.bind_all("<Alt-ButtonPress-1>", self._start_move)
         self.root.bind_all("<Alt-B1-Motion>", self._move_window)
         self.root.bind_all("<Alt-ButtonRelease-1>", lambda _event: self._save_state())
@@ -2313,6 +2602,40 @@ class QuickNoteApp:
         self.text.focus_set()
         self.text.mark_set("insert", "end-1c")
         self.text.see("insert")
+
+    def show_window_from_tray(self):
+        self.visible = True
+        self.root.deiconify()
+        self._force_window_to_front()
+        self.text.focus_set()
+        self.text.mark_set("insert", "end-1c")
+        self.text.see("insert")
+
+    def toggle_from_tray(self):
+        if self.visible and self.root.state() != "withdrawn":
+            log("tray toggle: visible note, hide")
+            self.hide_and_save()
+            return
+
+        log("tray toggle: show note")
+        self.show_window_from_tray()
+
+    def show_settings_from_tray(self):
+        if not self.visible or self.root.state() == "withdrawn":
+            self.show_window_from_tray()
+        self._show_settings_dialog()
+
+    def quit_app(self):
+        log("quit app")
+        if self.pending_single_click is not None:
+            self.root.after_cancel(self.pending_single_click)
+            self.pending_single_click = None
+        try:
+            self.save_note()
+        except Exception as exc:
+            log(f"save on quit failed: {exc}")
+        self._destroy_tray_icon()
+        self.root.destroy()
 
     def hide_and_save(self):
         log("hide note")

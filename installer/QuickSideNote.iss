@@ -1,5 +1,5 @@
 #define MyAppName "Quick Side Note"
-#define MyAppVersion "1.3.1"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "Quick Side Note"
 #define MyAppExeName "QuickSideNote.exe"
 #define MyAppPackageDir "..\release\QuickSideNote_App_v" + MyAppVersion
@@ -24,7 +24,7 @@ ArchitecturesAllowed=x64compatible
 CloseApplications=yes
 CloseApplicationsFilter={#MyAppExeName}
 RestartIfNeededByRun=no
-InfoBeforeFile=..\release\QuickSideNote_App\README_RUN.txt
+InfoBeforeFile=..\docs\README_RUN.txt
 VersionInfoVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Installer
