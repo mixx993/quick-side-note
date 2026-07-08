@@ -1,5 +1,6 @@
 import asyncio
 import ctypes
+import html
 import json
 import os
 import queue
@@ -21,7 +22,7 @@ from PIL import Image, ImageGrab, ImageOps
 
 
 APP_NAME = "Quick Side Note"
-APP_VERSION = "1.4.3"
+APP_VERSION = "1.5.0"
 NOTE_DIR = Path.home() / "Documents" / "QuickSideNote"
 NOTE_FILE = NOTE_DIR / "note.txt"
 DEFAULT_NOTE_PAGES = (
@@ -33,6 +34,7 @@ VOCABULARY_FILE = NOTE_DIR / "vocabulary.jsonl"
 STATE_FILE = NOTE_DIR / "state.json"
 LOG_FILE = NOTE_DIR / "quick_note.log"
 TMP_DIR = NOTE_DIR / "tmp"
+STUDIO_DIR = NOTE_DIR / "studio"
 ICON_FILE = Path(__file__).with_name("assets") / "quick_note_icon.ico"
 SETTINGS_STATE_KEY = "settings"
 XBUTTON1 = 0x0001
@@ -83,8 +85,8 @@ SM_YVIRTUALSCREEN = 77
 SM_CXVIRTUALSCREEN = 78
 SM_CYVIRTUALSCREEN = 79
 POPUP_OFFSET = 10
-WINDOW_WIDTH = 420
-WINDOW_HEIGHT = 300
+WINDOW_WIDTH = 440
+WINDOW_HEIGHT = 340
 MIN_WINDOW_WIDTH = 300
 MIN_WINDOW_HEIGHT = 200
 DEFAULT_WINDOW_X = 760
@@ -111,8 +113,11 @@ UI_INSERT = "#2563eb"
 UI_RESIZE_GRIP = "#9aa8b8"
 UI_ACCENT = "#2563eb"
 UI_ACCENT_SOFT = "#e8f1ff"
+UI_ACCENT_SOFTER = "#f3f7ff"
 UI_ACCENT_HOVER = "#dbeafe"
 UI_ACCENT_ACTIVE = "#1d4ed8"
+UI_CHROME_BG = "#eef3f8"
+UI_WINDOW_ALT = "#f8fbff"
 UI_PAGE_HOVER_BG = "#f1f5f9"
 UI_ACTIVE_PAGE_BG = UI_ACCENT_SOFT
 UI_ACTIVE_PAGE_FG = UI_ACCENT
@@ -120,13 +125,21 @@ UI_INACTIVE_PAGE_BG = UI_SHELL_BG
 UI_INACTIVE_PAGE_FG = "#526173"
 UI_TOAST_BG = "#17202a"
 UI_TOAST_FG = "#f8fafc"
+UI_HUD_BG = "#172536"
+UI_HUD_PANEL = "#243447"
+UI_HUD_TEXT = "#f8fafc"
+UI_HUD_MUTED = "#c6d3e1"
 UI_DIALOG_BG = "#f8fafc"
 UI_CARD_BG = "#ffffff"
 UI_DIVIDER = "#e2e8f0"
 UI_FIELD_BG = "#fbfdff"
 UI_SUCCESS = "#0f8f6f"
+UI_OCR = "#0f9f8f"
+UI_OCR_SOFT = "#e6f7f4"
 UI_WARNING = "#d97706"
+UI_WARNING_SOFT = "#fff4df"
 UI_DANGER = "#b42318"
+UI_DANGER_SOFT = "#fee4e2"
 UI_DISABLED_BG = "#eef2f7"
 UI_HEADER_BUTTON_HOVER = "#eef2f7"
 UI_CLOSE_HOVER_BG = "#fee2e2"
@@ -135,6 +148,63 @@ UI_NAV_BG = "#f1f5f9"
 UI_NAV_ACTIVE_BG = "#ffffff"
 UI_NAV_HOVER_BG = "#e8eef7"
 UI_SETTINGS_PANEL_BG = "#ffffff"
+
+# --- 暖色纸张质感色板(便签窗口专用,不影响设置窗口) ---
+NOTE_BORDER = "#e6dcc8"
+NOTE_SHELL_BG = "#f3ece0"
+NOTE_HEADER_BG = "#faf6ee"
+NOTE_HEADER_TEXT = "#3a2f24"
+NOTE_PAPER_BG = "#faf6ee"
+NOTE_PAPER_BORDER = "#e8dec9"
+NOTE_TEXT = "#3a2f24"
+NOTE_MUTED_TEXT = "#8a7a66"
+NOTE_ACCENT = "#c8732a"
+NOTE_ACCENT_SOFT = "#f7e8d6"
+NOTE_ACCENT_SOFTER = "#fbf2e6"
+NOTE_ACCENT_HOVER = "#eed9bf"
+NOTE_ACCENT_ACTIVE = "#a85f20"
+NOTE_INSERT = NOTE_ACCENT
+NOTE_SELECTION_BG = "#f0e2c8"
+NOTE_SELECTION_FG = "#3a2f24"
+NOTE_RESIZE_GRIP = "#b8a98f"
+NOTE_PAGE_HOVER_BG = "#ede3d3"
+NOTE_ACTIVE_PAGE_BG = NOTE_ACCENT_SOFT
+NOTE_ACTIVE_PAGE_FG = NOTE_ACCENT
+NOTE_INACTIVE_PAGE_BG = NOTE_SHELL_BG
+NOTE_INACTIVE_PAGE_FG = "#8a7a66"
+NOTE_HEADER_BUTTON_HOVER = "#ede3d3"
+NOTE_CLOSE_HOVER_BG = "#f7e2cf"
+NOTE_CLOSE_HOVER_FG = "#a85f20"
+NOTE_OCR = "#8a6d3b"
+NOTE_OCR_SOFT = "#f3ead8"
+NOTE_WARNING = "#b5730a"
+NOTE_WARNING_SOFT = "#f7e8cf"
+NOTE_AUTOSAVE_BG = NOTE_ACCENT_SOFTER
+NOTE_AUTOSAVE_FG = NOTE_MUTED_TEXT
+NOTE_FOOTER_BG = NOTE_PAPER_BG
+NOTE_FOOTER_HINT = "#a89880"
+NOTE_SRC_TAG = "#8a7a66"
+NOTE_DST_TAG = NOTE_ACCENT
+NOTE_TOAST_BG = "#2a2118"
+NOTE_TOAST_FG = "#faf6ee"
+
+# --- 设置窗口暖色(沿用便签暖调) ---
+NOTE_DIALOG_BG = "#f5efe4"
+NOTE_NAV_BG = "#efe6d6"
+NOTE_NAV_ACTIVE_BG = "#faf6ee"
+NOTE_NAV_HOVER_BG = "#e8dcc8"
+NOTE_SETTINGS_PANEL_BG = "#faf6ee"
+NOTE_FIELD_BG = "#fdfaf3"
+NOTE_DIVIDER = "#e2d6c2"
+NOTE_DANGER = "#a8442a"
+NOTE_DANGER_SOFT = "#f5e2d8"
+NOTE_SUCCESS = "#5a8a4e"
+NOTE_WARNING_NOTE = "#b5730a"
+NOTE_DISABLED_BG = "#e8e0d2"
+NOTE_HEADER_TEXT = "#3a2f24"
+NOTE_CARD_BG = "#faf6ee"
+NOTE_DANGER_SOFT = "#f5e2d8"
+
 EVENT_DEBOUNCE_SECONDS = 0.05
 DOUBLE_CLICK_SECONDS = 0.3
 CODEX_TIMEOUT_SECONDS = 25
@@ -181,6 +251,26 @@ TEXT_TRANSLATION_SYSTEM_PROMPT = (
     "You are a precise English to Simplified Chinese dictionary. "
     "Return strict JSON only. If a word is ambiguous, include the most common "
     "Chinese meanings separated by Chinese semicolons."
+)
+STUDIO_MODES = {
+    "report": ("报告", "整理成结构化阅读报告", "md"),
+    "mind_map": ("思维导图", "生成 Mermaid 思维导图", "md"),
+    "infographic": ("信息图", "生成可打开的 HTML 信息图", "html"),
+    "quiz": ("测验", "生成自测题和参考答案", "md"),
+    "flashcards": ("闪卡", "生成问答式复习卡片", "md"),
+    "data_table": ("数据表格", "整理为 Markdown 表格", "md"),
+    "audio_script": ("音频概览稿", "生成双人播客式讲稿", "md"),
+    "slides": ("演示文稿", "生成 6 页演示大纲", "md"),
+}
+STUDIO_MODE_ORDER = (
+    "report",
+    "mind_map",
+    "infographic",
+    "quiz",
+    "flashcards",
+    "data_table",
+    "audio_script",
+    "slides",
 )
 
 
@@ -424,6 +514,20 @@ class TranslationResult:
     translation: str
 
 
+@dataclass(frozen=True)
+class NoteSource:
+    title: str
+    content: str
+
+
+@dataclass(frozen=True)
+class StudioOutput:
+    mode: str
+    title: str
+    extension: str
+    content: str
+
+
 def format_window_geometry(width, height, x, y):
     width = max(int(width), MIN_WINDOW_WIDTH)
     height = max(int(height), MIN_WINDOW_HEIGHT)
@@ -600,6 +704,12 @@ def blocked_browser_keys_for_settings(settings):
     if not settings["block_browser_key"]:
         return set()
     return {SIDE_BUTTON_OPTIONS[settings["side_button"]]["browser_key"]}
+
+
+def update_ocr_status_if_available(app, active=False):
+    status_updater = getattr(app, "_set_ocr_status", None)
+    if callable(status_updater):
+        status_updater(active)
 
 
 def quote_windows_argument(value):
@@ -1199,6 +1309,7 @@ class ScreenCaptureOverlay:
         self.screen_width = 0
         self.screen_height = 0
         self.closed = False
+        self.hud_items = []
         self.window = tk.Toplevel(root)
         self.window.withdraw()
         self.window.overrideredirect(True)
@@ -1233,17 +1344,20 @@ class ScreenCaptureOverlay:
         self.window.deiconify()
         self.window.update_idletasks()
         self.window.focus_force()
+        self._draw_hud("框选英文区域", "拖动选择屏幕英文文本，再次按侧键或 Esc 取消。")
 
     def _start(self, event):
         self.start_x = event.x_root
         self.start_y = event.y_root
+        self._clear_hud()
         self.rect_id = self.canvas.create_rectangle(
             event.x,
             event.y,
             event.x,
             event.y,
-            outline="white",
+            outline=UI_OCR,
             width=2,
+            dash=(6, 4),
         )
 
     def _drag(self, event):
@@ -1307,6 +1421,55 @@ class ScreenCaptureOverlay:
                 self.window.destroy()
         except tk.TclError:
             pass
+
+    def _draw_hud(self, title, detail):
+        self._clear_hud()
+        width = min(430, max(320, self.screen_width - 64))
+        x0 = 32
+        y0 = 28
+        x1 = x0 + width
+        y1 = y0 + 70
+        self.hud_items.extend(
+            [
+                self.canvas.create_rectangle(
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    fill=UI_HUD_PANEL,
+                    outline=UI_HUD_PANEL,
+                ),
+                self.canvas.create_text(
+                    x0 + 16,
+                    y0 + 20,
+                    text=title,
+                    fill=UI_OCR,
+                    anchor="w",
+                    font=("Microsoft YaHei UI", 10, "bold"),
+                ),
+                self.canvas.create_text(
+                    x0 + 16,
+                    y0 + 48,
+                    text=detail,
+                    fill=UI_HUD_TEXT,
+                    anchor="w",
+                    font=("Microsoft YaHei UI", 9),
+                ),
+                self.canvas.create_text(
+                    x1 - 18,
+                    y0 + 20,
+                    text="Esc",
+                    fill=UI_HUD_MUTED,
+                    anchor="e",
+                    font=("Consolas", 9, "bold"),
+                ),
+            ]
+        )
+
+    def _clear_hud(self):
+        for item in self.hud_items:
+            self.canvas.delete(item)
+        self.hud_items = []
 
 
 class WindowsTrayIcon:
@@ -1482,37 +1645,62 @@ class WindowsTrayIcon:
             popup.overrideredirect(True)
             popup.attributes("-topmost", True)
             popup.configure(
-                bg="#ffffff",
-                highlightbackground="#cfd8e6",
-                highlightcolor="#cfd8e6",
+                bg=NOTE_CARD_BG,
+                highlightbackground=NOTE_BORDER,
+                highlightcolor=NOTE_BORDER,
                 highlightthickness=1,
             )
             self.current_menu = popup
+            menu_body = tk.Frame(popup, bg=NOTE_CARD_BG, padx=8, pady=8)
+            menu_body.pack(fill="both", expand=True)
 
-            def add_menu_item(label, callback):
-                item = tk.Label(
-                    popup,
+            def add_menu_item(label, callback, shortcut="", danger=False):
+                item = tk.Frame(menu_body, bg=NOTE_CARD_BG, cursor="hand2")
+                item.pack(fill="x")
+                fg = NOTE_DANGER if danger else NOTE_HEADER_TEXT
+                hover_bg = NOTE_DANGER_SOFT if danger else NOTE_ACCENT_SOFTER
+                left = tk.Label(
+                    item,
                     text=label,
                     anchor="w",
-                    bg="#ffffff",
-                    fg=UI_HEADER_TEXT,
-                    padx=16,
+                    bg=NOTE_CARD_BG,
+                    fg=fg,
+                    padx=12,
                     pady=8,
-                    font=("Microsoft YaHei UI", 10),
+                    font=("Microsoft YaHei UI", 9),
                     cursor="hand2",
                 )
-                item.pack(fill="x")
-                item.bind("<Enter>", lambda _event: item.configure(bg="#eaf2ff"))
-                item.bind("<Leave>", lambda _event: item.configure(bg="#ffffff"))
-                item.bind(
-                    "<ButtonRelease-1>",
-                    lambda _event: self._run_menu_command(popup, callback),
+                left.pack(side="left", fill="x", expand=True)
+                right = tk.Label(
+                    item,
+                    text=shortcut,
+                    anchor="e",
+                    bg=NOTE_CARD_BG,
+                    fg=NOTE_DANGER if danger else NOTE_MUTED_TEXT,
+                    padx=12,
+                    pady=8,
+                    font=("Consolas", 9),
+                    cursor="hand2",
                 )
+                right.pack(side="right")
 
-            add_menu_item(toggle_label, self.app.toggle_from_tray)
-            add_menu_item("设置", self.app.show_settings_from_tray)
-            tk.Frame(popup, height=1, bg="#e5eaf2").pack(fill="x", pady=2)
-            add_menu_item("退出", self.app.quit_app)
+                def set_item_bg(bg):
+                    item.configure(bg=bg)
+                    left.configure(bg=bg)
+                    right.configure(bg=bg)
+
+                for widget in (item, left, right):
+                    widget.bind("<Enter>", lambda _event, bg=hover_bg: set_item_bg(bg))
+                    widget.bind("<Leave>", lambda _event: set_item_bg(NOTE_CARD_BG))
+                    widget.bind(
+                        "<ButtonRelease-1>",
+                        lambda _event: self._run_menu_command(popup, callback),
+                    )
+
+            add_menu_item(toggle_label, self.app.toggle_from_tray, "Enter")
+            add_menu_item("设置", self.app.show_settings_from_tray, "Ctrl+,")
+            tk.Frame(menu_body, height=1, bg=NOTE_DIVIDER).pack(fill="x", pady=4)
+            add_menu_item("退出 Quick Side Note", self.app.quit_app, "Alt+F4", danger=True)
             popup.bind(
                 "<Escape>",
                 lambda _event: self._finish_menu(popup, destroy=True),
@@ -1601,13 +1789,16 @@ class QuickNoteApp:
         self.page_buttons = {}
         self.add_page_button = None
         self.page_title_label = None
+        self.ocr_status_label = None
+        self.autosave_label = None
+        self.editor_size_label = None
         self.hide_button = None
         self.settings_button = None
         self.tray_icon = None
         self.root.geometry(self._load_geometry())
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.overrideredirect(True)
-        self.root.configure(bg=UI_BORDER)
+        self.root.configure(bg=NOTE_BORDER)
         self.root.protocol("WM_DELETE_WINDOW", self.hide_and_save)
 
         self.events = queue.Queue()
@@ -1668,22 +1859,23 @@ class QuickNoteApp:
         self.tray_icon = None
 
     def _build_ui(self):
-        shell = tk.Frame(self.root, bg=UI_SHELL_BG, padx=7, pady=7)
+        shell = tk.Frame(self.root, bg=NOTE_BORDER, padx=8, pady=8)
         shell.pack(fill="both", expand=True, padx=1, pady=1)
 
-        header = tk.Frame(shell, bg=UI_HEADER_BG, height=34)
+        # --- 标题栏(暖色,可拖拽) ---
+        header = tk.Frame(shell, bg=NOTE_HEADER_BG, height=40)
         header.pack(fill="x")
         header.pack_propagate(False)
         self._bind_move_handle(header)
 
-        accent = tk.Frame(header, bg=UI_ACCENT, width=4)
+        accent = tk.Frame(header, bg=NOTE_ACCENT, width=4)
         accent.pack(side="left", fill="y", padx=(0, 10))
 
         self.page_title_label = tk.Label(
             header,
             text="",
-            bg=UI_HEADER_BG,
-            fg=UI_HEADER_TEXT,
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_HEADER_TEXT,
             bd=0,
             anchor="w",
             font=("Microsoft YaHei UI", 10, "bold"),
@@ -1691,27 +1883,11 @@ class QuickNoteApp:
         self.page_title_label.pack(side="left", fill="x", expand=True)
         self._bind_move_handle(self.page_title_label)
 
-        self.settings_button = tk.Label(
-            header,
-            text="⚙",
-            bg=UI_HEADER_BG,
-            fg=UI_MUTED_TEXT,
-            bd=0,
-            width=4,
-            anchor="center",
-            cursor="hand2",
-            font=("Segoe UI Symbol", 12),
-        )
-        self.settings_button.pack(side="right", fill="y")
-        self.settings_button.bind("<Button-1>", lambda _event: self._show_settings_dialog())
-        self.settings_button.bind("<Enter>", lambda _event: self._set_settings_hover(True))
-        self.settings_button.bind("<Leave>", lambda _event: self._set_settings_hover(False))
-
         self.hide_button = tk.Label(
             header,
             text="×",
-            bg=UI_HEADER_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_MUTED_TEXT,
             bd=0,
             width=4,
             anchor="center",
@@ -1723,56 +1899,224 @@ class QuickNoteApp:
         self.hide_button.bind("<Enter>", lambda _event: self._set_hide_hover(True))
         self.hide_button.bind("<Leave>", lambda _event: self._set_hide_hover(False))
 
-        body = tk.Frame(shell, bg=UI_SHELL_BG)
-        body.pack(fill="both", expand=True, pady=(7, 0))
+        self.settings_button = tk.Label(
+            header,
+            text="设置",
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_MUTED_TEXT,
+            bd=0,
+            width=5,
+            anchor="center",
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 9),
+        )
+        self.settings_button.pack(side="right", fill="y")
+        self.settings_button.bind("<Button-1>", lambda _event: self._show_settings_dialog())
+        self.settings_button.bind("<Enter>", lambda _event: self._set_settings_hover(True))
+        self.settings_button.bind("<Leave>", lambda _event: self._set_settings_hover(False))
 
-        self.page_rail = tk.Frame(body, bg=UI_SHELL_BG, width=self._page_rail_width())
-        self.page_rail.pack(side="left", fill="y", padx=(0, 7))
-        self.page_rail.pack_propagate(False)
+        self.ocr_status_label = tk.Label(
+            header,
+            text="● OCR",
+            bg=NOTE_OCR_SOFT,
+            fg=NOTE_OCR,
+            bd=0,
+            padx=6,
+            pady=1,
+            anchor="center",
+            font=("Consolas", 8),
+        )
+        self.ocr_status_label.pack(side="right", padx=(0, 8), pady=8)
 
+        # --- 顶部横排页签(替代原左侧竖排 page_rail) ---
+        self.page_tabs = tk.Frame(shell, bg=NOTE_SHELL_BG, height=32)
+        self.page_tabs.pack(fill="x", pady=(8, 6))
+        self.page_tabs.pack_propagate(False)
         self._rebuild_page_tabs()
 
-        editor = tk.Frame(body, bg=UI_PAPER_BORDER, padx=1, pady=1)
-        editor.pack(side="left", fill="both", expand=True)
+        # --- 编辑器卡片(纸张质感) ---
+        editor = tk.Frame(shell, bg=NOTE_PAPER_BORDER, padx=1, pady=1)
+        editor.pack(fill="both", expand=True)
+
+        editor_surface = tk.Frame(editor, bg=NOTE_PAPER_BG)
+        editor_surface.pack(fill="both", expand=True)
+
+        editor_meta = tk.Frame(editor_surface, bg=NOTE_PAPER_BG, height=26)
+        editor_meta.pack(fill="x", padx=14, pady=(8, 0))
+        editor_meta.pack_propagate(False)
+
+        self.autosave_label = tk.Label(
+            editor_meta,
+            text="Auto saved",
+            bg=NOTE_AUTOSAVE_BG,
+            fg=NOTE_AUTOSAVE_FG,
+            bd=0,
+            padx=8,
+            pady=2,
+            anchor="center",
+            font=("Microsoft YaHei UI", 8),
+        )
+        self.autosave_label.pack(side="left", pady=3)
+
+        self.editor_size_label = tk.Label(
+            editor_meta,
+            text="",
+            bg=NOTE_PAPER_BG,
+            fg=NOTE_MUTED_TEXT,
+            bd=0,
+            anchor="e",
+            font=("Consolas", 8),
+        )
+        self.editor_size_label.pack(side="right", fill="y")
 
         self.text = tk.Text(
-            editor,
+            editor_surface,
             wrap="word",
             undo=True,
             relief="flat",
             bd=0,
             highlightthickness=0,
-            padx=18,
-            pady=16,
-            font=("Microsoft YaHei UI", 11),
-            bg=UI_PAPER_BG,
-            fg=UI_TEXT,
-            insertbackground=UI_INSERT,
+            padx=14,
+            pady=10,
+            font=("Microsoft YaHei UI", 10),
+            bg=NOTE_PAPER_BG,
+            fg=NOTE_TEXT,
+            insertbackground=NOTE_INSERT,
             insertwidth=2,
-            selectbackground=UI_SELECTION_BG,
-            selectforeground=UI_SELECTION_FG,
-            inactiveselectbackground=UI_SELECTION_BG,
+            selectbackground=NOTE_SELECTION_BG,
+            selectforeground=NOTE_SELECTION_FG,
+            inactiveselectbackground=NOTE_SELECTION_BG,
             spacing1=2,
             spacing2=1,
-            spacing3=8,
+            spacing3=6,
             tabs=("2c",),
         )
-        self.text.pack(side="left", fill="both", expand=True)
-        self.text.tag_config("placeholder", foreground=UI_MUTED_TEXT)
-        self._update_page_buttons()
+        self.text.pack(side="top", fill="both", expand=True, padx=14, pady=(2, 0))
+        self.text.tag_config("placeholder", foreground=NOTE_MUTED_TEXT)
+        # 翻译结果视觉区分 tag
+        self.text.tag_config("src", foreground=NOTE_SRC_TAG)
+        self.text.tag_config(
+            "dst",
+            foreground=NOTE_DST_TAG,
+            font=("Microsoft YaHei UI", 10, "bold"),
+        )
 
+        # --- 底部操作栏(替代原静态提示) ---
+        editor_footer = tk.Frame(editor_surface, bg=NOTE_FOOTER_BG, height=30)
+        editor_footer.pack(side="bottom", fill="x", padx=14, pady=(4, 8))
+        editor_footer.pack_propagate(False)
+
+        self.footer_save_btn = tk.Label(
+            editor_footer,
+            text="保存",
+            bg=NOTE_FOOTER_BG,
+            fg=NOTE_MUTED_TEXT,
+            bd=0,
+            padx=8,
+            pady=2,
+            anchor="center",
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 9),
+        )
+        self.footer_save_btn.pack(side="left", pady=4)
+        self.footer_save_btn.bind("<Button-1>", lambda _event: self.save_note())
+        self.footer_save_btn.bind("<Enter>", lambda _event: self._set_footer_btn_hover(self.footer_save_btn, True))
+        self.footer_save_btn.bind("<Leave>", lambda _event: self._set_footer_btn_hover(self.footer_save_btn, False))
+
+        self.footer_clear_btn = tk.Label(
+            editor_footer,
+            text="清空",
+            bg=NOTE_FOOTER_BG,
+            fg=NOTE_MUTED_TEXT,
+            bd=0,
+            padx=8,
+            pady=2,
+            anchor="center",
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 9),
+        )
+        self.footer_clear_btn.pack(side="left", pady=4)
+        self.footer_clear_btn.bind("<Button-1>", lambda _event: self._clear_note())
+        self.footer_clear_btn.bind("<Enter>", lambda _event: self._set_footer_btn_hover(self.footer_clear_btn, True))
+        self.footer_clear_btn.bind("<Leave>", lambda _event: self._set_footer_btn_hover(self.footer_clear_btn, False))
+
+        self.footer_hide_btn = tk.Label(
+            editor_footer,
+            text="隐藏",
+            bg=NOTE_FOOTER_BG,
+            fg=NOTE_MUTED_TEXT,
+            bd=0,
+            padx=8,
+            pady=2,
+            anchor="center",
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 9),
+        )
+        self.footer_hide_btn.pack(side="left", pady=4)
+        self.footer_hide_btn.bind("<Button-1>", lambda _event: self.hide_and_save())
+        self.footer_hide_btn.bind("<Enter>", lambda _event: self._set_footer_btn_hover(self.footer_hide_btn, True))
+        self.footer_hide_btn.bind("<Leave>", lambda _event: self._set_footer_btn_hover(self.footer_hide_btn, False))
+
+        # 快捷键小字提示(左)
+        tk.Label(
+            editor_footer,
+            text="Ctrl+S · Ctrl+L · Esc",
+            bg=NOTE_FOOTER_BG,
+            fg=NOTE_FOOTER_HINT,
+            bd=0,
+            padx=8,
+            pady=2,
+            anchor="w",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(side="left", pady=4)
+
+        self.footer_settings_btn = tk.Label(
+            editor_footer,
+            text="设置",
+            bg=NOTE_FOOTER_BG,
+            fg=NOTE_MUTED_TEXT,
+            bd=0,
+            padx=8,
+            pady=2,
+            anchor="center",
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 9),
+        )
+        self.footer_settings_btn.pack(side="right", pady=4)
+        self.footer_settings_btn.bind("<Button-1>", lambda _event: self._show_settings_dialog())
+        self.footer_settings_btn.bind("<Enter>", lambda _event: self._set_footer_btn_hover(self.footer_settings_btn, True))
+        self.footer_settings_btn.bind("<Leave>", lambda _event: self._set_footer_btn_hover(self.footer_settings_btn, False))
+
+        # 右侧快捷键提示
+        tk.Label(
+            editor_footer,
+            text="Ctrl+,",
+            bg=NOTE_FOOTER_BG,
+            fg=NOTE_FOOTER_HINT,
+            bd=0,
+            padx=8,
+            pady=2,
+            anchor="e",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(side="right", pady=4)
+
+        self._update_page_buttons()
+        self._update_window_size_label()
+        self.root.bind("<Configure>", self._on_root_configure, add="+")
+
+        # --- 右下角拉伸手柄(暖色) ---
         self.resize_grip = tk.Canvas(
             shell,
             width=RESIZE_GRIP_SIZE,
             height=RESIZE_GRIP_SIZE,
-            bg=UI_PAPER_BG,
+            bg=NOTE_PAPER_BG,
             bd=0,
             highlightthickness=0,
             cursor="size_nw_se",
         )
         self.resize_grip.place(relx=1.0, rely=1.0, x=-5, y=-5, anchor="se")
-        self.resize_grip.create_line(8, 17, 17, 8, fill=UI_RESIZE_GRIP, width=1)
-        self.resize_grip.create_line(12, 17, 17, 12, fill=UI_RESIZE_GRIP, width=1)
+        self.resize_grip.create_line(8, 17, 17, 8, fill=NOTE_RESIZE_GRIP, width=1)
+        self.resize_grip.create_line(12, 17, 17, 12, fill=NOTE_RESIZE_GRIP, width=1)
         self.resize_grip.bind("<ButtonPress-1>", self._start_resize)
         self.resize_grip.bind("<B1-Motion>", self._resize_window)
         self.resize_grip.bind("<ButtonRelease-1>", self._finish_resize)
@@ -1789,6 +2133,33 @@ class QuickNoteApp:
         self.root.bind_all("<Alt-B1-Motion>", self._move_window)
         self.root.bind_all("<Alt-ButtonRelease-1>", lambda _event: self._save_state())
 
+    def _on_root_configure(self, event):
+        if event.widget == self.root:
+            self._update_window_size_label()
+
+    def _update_window_size_label(self):
+        if self.editor_size_label is None:
+            return
+        width = max(self.root.winfo_width(), MIN_WINDOW_WIDTH)
+        height = max(self.root.winfo_height(), MIN_WINDOW_HEIGHT)
+        self.editor_size_label.configure(text=f"{width}×{height}")
+
+    def _set_ocr_status(self, active=False):
+        if self.ocr_status_label is None:
+            return
+        if active:
+            self.ocr_status_label.configure(
+                text="● OCR…",
+                bg=NOTE_WARNING_SOFT,
+                fg=NOTE_WARNING,
+            )
+        else:
+            self.ocr_status_label.configure(
+                text="● OCR",
+                bg=NOTE_OCR_SOFT,
+                fg=NOTE_OCR,
+            )
+
     def _bind_move_handle(self, widget):
         widget.bind("<ButtonPress-1>", self._start_move)
         widget.bind("<B1-Motion>", self._move_window)
@@ -1804,18 +2175,18 @@ class QuickNoteApp:
         dialog.title("配置翻译 API")
         dialog.resizable(False, False)
         dialog.attributes("-topmost", True)
-        dialog.configure(bg=UI_HEADER_BG)
+        dialog.configure(bg=NOTE_HEADER_BG)
         dialog.transient(self.root)
 
-        frame = tk.Frame(dialog, bg=UI_HEADER_BG, padx=18, pady=16)
+        frame = tk.Frame(dialog, bg=NOTE_HEADER_BG, padx=18, pady=16)
         frame.pack(fill="both", expand=True)
 
         title_text = "首次运行设置" if first_run else "配置 DeepSeek API"
         title = tk.Label(
             frame,
             text=title_text,
-            bg=UI_HEADER_BG,
-            fg=UI_HEADER_TEXT,
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_HEADER_TEXT,
             anchor="w",
             font=("Microsoft YaHei UI", 11, "bold"),
         )
@@ -1827,8 +2198,8 @@ class QuickNoteApp:
                 "请输入 DeepSeek API Key。保存后会写入当前 Windows 用户环境变量 "
                 "DEEPSEEK_API_KEY，并立即用于翻译。"
             ),
-            bg=UI_HEADER_BG,
-            fg=UI_INACTIVE_PAGE_FG,
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_INACTIVE_PAGE_FG,
             justify="left",
             anchor="w",
             wraplength=380,
@@ -1845,20 +2216,23 @@ class QuickNoteApp:
             bd=1,
             width=46,
             font=("Consolas", 10),
+            bg=NOTE_FIELD_BG,
+            fg=NOTE_TEXT,
+            insertbackground=NOTE_INSERT,
         )
         entry.pack(fill="x")
 
         status = tk.Label(
             frame,
             text="",
-            bg=UI_HEADER_BG,
-            fg="#b42318",
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_DANGER,
             anchor="w",
             font=("Microsoft YaHei UI", 9),
         )
         status.pack(fill="x", pady=(8, 0))
 
-        buttons = tk.Frame(frame, bg=UI_HEADER_BG)
+        buttons = tk.Frame(frame, bg=NOTE_HEADER_BG)
         buttons.pack(fill="x", pady=(12, 0))
 
         def close_dialog():
@@ -1885,9 +2259,9 @@ class QuickNoteApp:
             buttons,
             text="保存",
             command=save_key,
-            bg=UI_ACCENT,
+            bg=NOTE_ACCENT,
             fg="#ffffff",
-            activebackground=UI_ACCENT,
+            activebackground=NOTE_ACCENT,
             activeforeground="#ffffff",
             relief="flat",
             padx=14,
@@ -1900,10 +2274,10 @@ class QuickNoteApp:
             buttons,
             text="稍后再说",
             command=close_dialog,
-            bg=UI_ACCENT_SOFT,
-            fg=UI_ACCENT,
-            activebackground=UI_ACCENT_HOVER,
-            activeforeground=UI_ACCENT,
+            bg=NOTE_ACCENT_SOFT,
+            fg=NOTE_ACCENT,
+            activebackground=NOTE_ACCENT_HOVER,
+            activeforeground=NOTE_ACCENT,
             relief="flat",
             padx=12,
             pady=5,
@@ -1931,7 +2305,7 @@ class QuickNoteApp:
         dialog.title("首次运行设置" if first_run else "设置")
         dialog.resizable(False, False)
         dialog.attributes("-topmost", True)
-        dialog.configure(bg=UI_DIALOG_BG)
+        dialog.configure(bg=NOTE_DIALOG_BG)
         dialog.transient(self.root)
 
         dialog_width = 820
@@ -1945,7 +2319,7 @@ class QuickNoteApp:
         dialog.grid_columnconfigure(1, weight=1)
         dialog.grid_rowconfigure(0, weight=1)
 
-        nav = tk.Frame(dialog, bg=UI_NAV_BG, width=188)
+        nav = tk.Frame(dialog, bg=NOTE_NAV_BG, width=188)
         nav.grid(row=0, column=0, sticky="ns")
         nav.grid_propagate(False)
         nav.grid_columnconfigure(0, weight=1)
@@ -1953,26 +2327,26 @@ class QuickNoteApp:
         tk.Label(
             nav,
             text="Quick Note",
-            bg=UI_NAV_BG,
-            fg=UI_HEADER_TEXT,
+            bg=NOTE_NAV_BG,
+            fg=NOTE_HEADER_TEXT,
             anchor="w",
             font=("Microsoft YaHei UI", 10, "bold"),
         ).grid(row=0, column=0, sticky="ew", padx=16, pady=(18, 2))
         tk.Label(
             nav,
             text=f"v{APP_VERSION}",
-            bg=UI_NAV_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_NAV_BG,
+            fg=NOTE_MUTED_TEXT,
             anchor="w",
             font=("Microsoft YaHei UI", 8),
         ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 14))
 
-        right = tk.Frame(dialog, bg=UI_DIALOG_BG)
+        right = tk.Frame(dialog, bg=NOTE_DIALOG_BG)
         right.grid(row=0, column=1, sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
         right.grid_rowconfigure(1, weight=1)
 
-        header = tk.Frame(right, bg=UI_DIALOG_BG, padx=20, pady=12)
+        header = tk.Frame(right, bg=NOTE_DIALOG_BG, padx=20, pady=12)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
@@ -1981,16 +2355,16 @@ class QuickNoteApp:
         tk.Label(
             header,
             textvariable=title_var,
-            bg=UI_DIALOG_BG,
-            fg=UI_HEADER_TEXT,
+            bg=NOTE_DIALOG_BG,
+            fg=NOTE_HEADER_TEXT,
             anchor="w",
             font=("Microsoft YaHei UI", 15, "bold"),
         ).grid(row=0, column=0, sticky="ew")
         tk.Label(
             header,
             textvariable=subtitle_var,
-            bg=UI_DIALOG_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_DIALOG_BG,
+            fg=NOTE_MUTED_TEXT,
             anchor="w",
             justify="left",
             wraplength=540,
@@ -1999,32 +2373,32 @@ class QuickNoteApp:
 
         content = tk.Frame(
             right,
-            bg=UI_SETTINGS_PANEL_BG,
+            bg=NOTE_SETTINGS_PANEL_BG,
             highlightthickness=1,
-            highlightbackground=UI_DIVIDER,
-            highlightcolor=UI_DIVIDER,
+            highlightbackground=NOTE_DIVIDER,
+            highlightcolor=NOTE_DIVIDER,
         )
         content.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 12))
         content.grid_columnconfigure(0, weight=1)
         content.grid_rowconfigure(0, weight=1)
 
-        tk.Frame(dialog, bg=UI_DIVIDER, height=1).grid(
+        tk.Frame(dialog, bg=NOTE_DIVIDER, height=1).grid(
             row=1, column=0, columnspan=2, sticky="ew"
         )
-        footer = tk.Frame(dialog, bg=UI_DIALOG_BG, padx=20, pady=8)
+        footer = tk.Frame(dialog, bg=NOTE_DIALOG_BG, padx=20, pady=8)
         footer.grid(row=2, column=0, columnspan=2, sticky="ew")
 
         def make_button(parent, text, command, primary=False):
             if primary:
-                bg = UI_ACCENT
+                bg = NOTE_ACCENT
                 fg = "#ffffff"
-                active_bg = UI_ACCENT_ACTIVE
+                active_bg = NOTE_ACCENT_ACTIVE
                 active_fg = "#ffffff"
             else:
-                bg = UI_ACCENT_SOFT
-                fg = UI_ACCENT
-                active_bg = UI_ACCENT_HOVER
-                active_fg = UI_ACCENT
+                bg = NOTE_ACCENT_SOFT
+                fg = NOTE_ACCENT
+                active_bg = NOTE_ACCENT_HOVER
+                active_fg = NOTE_ACCENT
             return tk.Button(
                 parent,
                 text=text,
@@ -2042,7 +2416,7 @@ class QuickNoteApp:
             )
 
         def make_page():
-            page = tk.Frame(content, bg=UI_SETTINGS_PANEL_BG, padx=20, pady=10)
+            page = tk.Frame(content, bg=NOTE_SETTINGS_PANEL_BG, padx=20, pady=10)
             page.grid(row=0, column=0, sticky="nsew")
             page.grid_columnconfigure(0, weight=1)
             page.grid_remove()
@@ -2053,7 +2427,7 @@ class QuickNoteApp:
             parent.grid_columnconfigure(0, weight=1)
             canvas = tk.Canvas(
                 parent,
-                bg=UI_SETTINGS_PANEL_BG,
+                bg=NOTE_SETTINGS_PANEL_BG,
                 bd=0,
                 highlightthickness=0,
             )
@@ -2064,7 +2438,7 @@ class QuickNoteApp:
                 bd=0,
                 highlightthickness=0,
             )
-            inner = tk.Frame(canvas, bg=UI_SETTINGS_PANEL_BG)
+            inner = tk.Frame(canvas, bg=NOTE_SETTINGS_PANEL_BG)
             inner_window = canvas.create_window((0, 0), window=inner, anchor="nw")
 
             def sync_width(event):
@@ -2097,8 +2471,8 @@ class QuickNoteApp:
             tk.Label(
                 parent,
                 text=text,
-                bg=UI_SETTINGS_PANEL_BG,
-                fg=UI_HEADER_TEXT,
+                bg=NOTE_SETTINGS_PANEL_BG,
+                fg=NOTE_HEADER_TEXT,
                 anchor="w",
                 font=("Microsoft YaHei UI", 10, "bold"),
             ).grid(row=row, column=0, sticky="ew", pady=(0, 2))
@@ -2106,8 +2480,8 @@ class QuickNoteApp:
                 tk.Label(
                     parent,
                     text=detail,
-                    bg=UI_SETTINGS_PANEL_BG,
-                    fg=UI_MUTED_TEXT,
+                    bg=NOTE_SETTINGS_PANEL_BG,
+                    fg=NOTE_MUTED_TEXT,
                     anchor="w",
                     justify="left",
                     wraplength=480,
@@ -2122,11 +2496,11 @@ class QuickNoteApp:
                 text=text,
                 variable=variable,
                 command=command,
-                bg=UI_SETTINGS_PANEL_BG,
-                fg=UI_TEXT,
-                activebackground=UI_SETTINGS_PANEL_BG,
-                activeforeground=UI_TEXT,
-                selectcolor=UI_SETTINGS_PANEL_BG,
+                bg=NOTE_SETTINGS_PANEL_BG,
+                fg=NOTE_TEXT,
+                activebackground=NOTE_SETTINGS_PANEL_BG,
+                activeforeground=NOTE_TEXT,
+                selectcolor=NOTE_SETTINGS_PANEL_BG,
                 anchor="w",
                 justify="left",
                 wraplength=480,
@@ -2139,15 +2513,41 @@ class QuickNoteApp:
                 text=text,
                 value=value,
                 variable=variable,
-                bg=UI_SETTINGS_PANEL_BG,
-                fg=UI_TEXT,
-                activebackground=UI_SETTINGS_PANEL_BG,
-                activeforeground=UI_TEXT,
-                selectcolor=UI_SETTINGS_PANEL_BG,
+                bg=NOTE_SETTINGS_PANEL_BG,
+                fg=NOTE_TEXT,
+                activebackground=NOTE_SETTINGS_PANEL_BG,
+                activeforeground=NOTE_TEXT,
+                selectcolor=NOTE_SETTINGS_PANEL_BG,
                 anchor="w",
                 justify="left",
                 wraplength=480,
                 font=("Microsoft YaHei UI", 9),
+            )
+
+        def make_setting_card(parent, row, pady=(0, 8)):
+            card = tk.Frame(
+                parent,
+                bg=NOTE_FIELD_BG,
+                highlightthickness=1,
+                highlightbackground=NOTE_PAPER_BORDER,
+                highlightcolor=NOTE_ACCENT,
+                padx=12,
+                pady=10,
+            )
+            card.grid(row=row, column=0, sticky="ew", pady=pady)
+            card.grid_columnconfigure(0, weight=1)
+            return card
+
+        def make_badge(parent, text, bg=NOTE_ACCENT_SOFT, fg=NOTE_ACCENT):
+            return tk.Label(
+                parent,
+                text=text,
+                bg=bg,
+                fg=fg,
+                bd=0,
+                padx=8,
+                pady=2,
+                font=("Microsoft YaHei UI", 8, "bold"),
             )
 
         key_var = tk.StringVar(value=get_user_environment_value("DEEPSEEK_API_KEY"))
@@ -2181,9 +2581,9 @@ class QuickNoteApp:
             relief="solid",
             bd=1,
             font=("Consolas", 10),
-            bg=UI_FIELD_BG,
-            fg=UI_TEXT,
-            insertbackground=UI_INSERT,
+            bg=NOTE_FIELD_BG,
+            fg=NOTE_TEXT,
+            insertbackground=NOTE_INSERT,
         )
         key_entry.grid(row=row, column=0, sticky="ew", ipady=5)
 
@@ -2196,8 +2596,8 @@ class QuickNoteApp:
         api_status = tk.Label(
             api_page,
             textvariable=api_status_var,
-            bg=UI_SETTINGS_PANEL_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_SETTINGS_PANEL_BG,
+            fg=NOTE_MUTED_TEXT,
             anchor="w",
             font=("Microsoft YaHei UI", 8),
         )
@@ -2206,9 +2606,9 @@ class QuickNoteApp:
         def clear_api_key():
             key_var.set("")
             api_status_var.set("保存后会清除当前用户的 DEEPSEEK_API_KEY。")
-            api_status.configure(fg=UI_DANGER)
+            api_status.configure(fg=NOTE_DANGER)
 
-        api_actions = tk.Frame(api_page, bg=UI_SETTINGS_PANEL_BG)
+        api_actions = tk.Frame(api_page, bg=NOTE_SETTINGS_PANEL_BG)
         api_actions.grid(row=row + 3, column=0, sticky="ew", pady=(16, 0))
         clear_api_button = make_button(api_actions, "清除 Key", clear_api_key)
         clear_api_button.pack(side="right")
@@ -2222,33 +2622,125 @@ class QuickNoteApp:
             "侧键",
             "选择用于框选识别的鼠标侧键。框选中再次按侧键或 Esc 可取消。",
         )
-        for key, option in SIDE_BUTTON_OPTIONS.items():
-            text = f"{option['label']}（{option['detail']}）"
-            radio = make_radio(input_body, text, side_button_var, key)
-            radio.grid(row=input_row, column=0, sticky="w", pady=(0, 2))
+        side_button_badges = {}
+        for index, (key, option) in enumerate(SIDE_BUTTON_OPTIONS.items()):
+            card = make_setting_card(input_body, input_row)
+            radio = tk.Radiobutton(
+                card,
+                text=option["label"],
+                value=key,
+                variable=side_button_var,
+                bg=NOTE_FIELD_BG,
+                fg=NOTE_TEXT,
+                activebackground=NOTE_FIELD_BG,
+                activeforeground=NOTE_TEXT,
+                selectcolor=NOTE_FIELD_BG,
+                anchor="w",
+                font=("Microsoft YaHei UI", 9, "bold"),
+            )
+            radio.grid(row=0, column=0, sticky="w")
+            tk.Label(
+                card,
+                text=option["detail"],
+                bg=NOTE_FIELD_BG,
+                fg=NOTE_MUTED_TEXT,
+                anchor="w",
+                font=("Microsoft YaHei UI", 8),
+            ).grid(row=1, column=0, sticky="ew", padx=(24, 0), pady=(3, 0))
+            badge_text = "当前" if key == side_button_var.get() else "备用"
+            badge = make_badge(card, badge_text)
+            badge.grid(row=0, column=1, rowspan=2, sticky="e")
+            side_button_badges[key] = badge
             input_row += 1
 
-        tk.Frame(input_body, bg=UI_DIVIDER, height=1).grid(
-            row=input_row, column=0, sticky="ew", pady=(4, 6)
+        def update_side_button_badges(*_args):
+            selected_key = side_button_var.get()
+            for key, badge in side_button_badges.items():
+                active = key == selected_key
+                badge.configure(
+                    text="当前" if active else "备用",
+                    bg=NOTE_ACCENT_SOFT if active else NOTE_DISABLED_BG,
+                    fg=NOTE_ACCENT if active else NOTE_MUTED_TEXT,
+                )
+
+        side_button_var.trace_add("write", update_side_button_badges)
+        update_side_button_badges()
+
+        tk.Frame(input_body, bg=NOTE_DIVIDER, height=1).grid(
+            row=input_row, column=0, sticky="ew", pady=(6, 14)
         )
         input_row += 1
 
-        input_row = make_section(input_body, input_row, "浏览器侧键拦截")
-        block_browser = make_check(
+        input_row = make_section(
             input_body,
-            "拦截浏览器后退/前进键，避免页面跳转",
-            block_browser_var,
+            input_row,
+            "浏览器侧键拦截",
+            "拦截浏览器后退/前进键，避免 OCR 框选时页面跳转。",
         )
-        block_browser.grid(row=input_row, column=0, sticky="w", pady=(0, 6))
+        block_card = make_setting_card(input_body, input_row)
+        tk.Label(
+            block_card,
+            text="拦截浏览器后退/前进键",
+            bg=NOTE_FIELD_BG,
+            fg=NOTE_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 9, "bold"),
+        ).grid(row=0, column=0, sticky="ew")
+        block_status_var = tk.StringVar()
+
+        def update_block_toggle():
+            enabled = bool(block_browser_var.get())
+            block_status_var.set(
+                "已开启，避免 OCR 框选时页面跳转。"
+                if enabled
+                else "已关闭，浏览器侧键会保持原行为。"
+            )
+            block_browser.configure(
+                text="ON" if enabled else "OFF",
+                bg=NOTE_OCR if enabled else NOTE_DISABLED_BG,
+                fg="#ffffff" if enabled else NOTE_MUTED_TEXT,
+                activebackground=NOTE_OCR if enabled else NOTE_DISABLED_BG,
+                activeforeground="#ffffff" if enabled else NOTE_MUTED_TEXT,
+            )
+
+        tk.Label(
+            block_card,
+            textvariable=block_status_var,
+            bg=NOTE_FIELD_BG,
+            fg=NOTE_MUTED_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 8),
+        ).grid(row=1, column=0, sticky="ew", pady=(3, 0))
+        block_browser = tk.Checkbutton(
+            block_card,
+            text="ON",
+            variable=block_browser_var,
+            command=update_block_toggle,
+            indicatoron=False,
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=4,
+            cursor="hand2",
+            font=("Consolas", 8, "bold"),
+        )
+        block_browser.grid(row=0, column=1, rowspan=2, sticky="e")
+        update_block_toggle()
         input_row += 1
 
-        input_row = make_section(input_body, input_row, "双击判定间隔")
+        input_row = make_section(
+            input_body,
+            input_row,
+            "双击判定间隔",
+            "用于区分连续侧键触发与取消。当前实现范围为 150–900 ms。",
+        )
 
         def update_double_click_label(_value=None):
             double_click_value_var.set(f"{int(double_click_var.get())} ms")
 
-        delay_row = tk.Frame(input_body, bg=UI_SETTINGS_PANEL_BG)
-        delay_row.grid(row=input_row, column=0, sticky="ew")
+        delay_card = make_setting_card(input_body, input_row, pady=(0, 0))
+        delay_row = tk.Frame(delay_card, bg=NOTE_FIELD_BG)
+        delay_row.grid(row=0, column=0, sticky="ew")
         delay_row.grid_columnconfigure(0, weight=1)
         double_click_scale = tk.Scale(
             delay_row,
@@ -2259,32 +2751,34 @@ class QuickNoteApp:
             variable=double_click_var,
             command=update_double_click_label,
             showvalue=False,
-            bg=UI_SETTINGS_PANEL_BG,
-            fg=UI_TEXT,
-            activebackground=UI_ACCENT,
+            bg=NOTE_FIELD_BG,
+            fg=NOTE_TEXT,
+            activebackground=NOTE_ACCENT,
             highlightthickness=0,
-            troughcolor=UI_DISABLED_BG,
+            troughcolor=NOTE_DISABLED_BG,
         )
         double_click_scale.grid(row=0, column=0, sticky="ew")
         tk.Label(
             delay_row,
             textvariable=double_click_value_var,
-            bg=UI_SETTINGS_PANEL_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_FIELD_BG,
+            fg=NOTE_MUTED_TEXT,
             width=8,
             anchor="e",
             font=("Consolas", 9),
         ).grid(row=0, column=1, sticky="e", padx=(10, 0))
         tk.Label(
-            input_body,
+            delay_card,
             text="固定快捷键：Ctrl+S 保存，Esc 隐藏，Ctrl+L 清空，Ctrl+K API，Ctrl+, 设置，Ctrl+Q 退出。",
-            bg=UI_SETTINGS_PANEL_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_ACCENT_SOFTER,
+            fg=NOTE_MUTED_TEXT,
             anchor="w",
             justify="left",
             wraplength=480,
             font=("Microsoft YaHei UI", 8),
-        ).grid(row=input_row + 1, column=0, sticky="ew", pady=(6, 0))
+            padx=10,
+            pady=8,
+        ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
 
         startup_page = make_page()
         pages["startup"] = startup_page
@@ -2299,8 +2793,8 @@ class QuickNoteApp:
         startup_status = tk.Label(
             startup_page,
             textvariable=startup_status_var,
-            bg=UI_SETTINGS_PANEL_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_SETTINGS_PANEL_BG,
+            fg=NOTE_MUTED_TEXT,
             anchor="w",
             font=("Microsoft YaHei UI", 8),
         )
@@ -2308,13 +2802,13 @@ class QuickNoteApp:
         def update_startup_status():
             if startup_var.get():
                 startup_status_var.set("保存后将启用开机启动。")
-                startup_status.configure(fg=UI_SUCCESS)
+                startup_status.configure(fg=NOTE_SUCCESS)
             elif startup_command:
                 startup_status_var.set("保存后将取消当前开机启动项。")
-                startup_status.configure(fg=UI_WARNING)
+                startup_status.configure(fg=NOTE_WARNING_NOTE)
             else:
                 startup_status_var.set("当前未启用开机启动。")
-                startup_status.configure(fg=UI_MUTED_TEXT)
+                startup_status.configure(fg=NOTE_MUTED_TEXT)
 
         startup_check = make_check(
             startup_page,
@@ -2332,8 +2826,8 @@ class QuickNoteApp:
         tk.Label(
             about_page,
             text="轻量侧键便签工具：本地 OCR 识别屏幕文字，并调用 DeepSeek 完成翻译。",
-            bg=UI_SETTINGS_PANEL_BG,
-            fg=UI_TEXT,
+            bg=NOTE_SETTINGS_PANEL_BG,
+            fg=NOTE_TEXT,
             anchor="w",
             justify="left",
             wraplength=470,
@@ -2342,8 +2836,8 @@ class QuickNoteApp:
         tk.Label(
             about_page,
             text=f"数据目录：{NOTE_DIR}",
-            bg=UI_SETTINGS_PANEL_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_SETTINGS_PANEL_BG,
+            fg=NOTE_MUTED_TEXT,
             anchor="w",
             justify="left",
             wraplength=470,
@@ -2352,8 +2846,8 @@ class QuickNoteApp:
         tk.Label(
             about_page,
             text=f"日志文件：{LOG_FILE}",
-            bg=UI_SETTINGS_PANEL_BG,
-            fg=UI_MUTED_TEXT,
+            bg=NOTE_SETTINGS_PANEL_BG,
+            fg=NOTE_MUTED_TEXT,
             anchor="w",
             justify="left",
             wraplength=470,
@@ -2372,8 +2866,8 @@ class QuickNoteApp:
             for key, widget in nav_items.items():
                 active = key == active_key
                 widget.configure(
-                    bg=UI_NAV_ACTIVE_BG if active else UI_NAV_BG,
-                    fg=UI_ACCENT if active else UI_INACTIVE_PAGE_FG,
+                    bg=NOTE_NAV_ACTIVE_BG if active else NOTE_NAV_BG,
+                    fg=NOTE_ACCENT if active else NOTE_INACTIVE_PAGE_FG,
                     font=("Microsoft YaHei UI", 9, "bold" if active else "normal"),
                 )
 
@@ -2397,8 +2891,8 @@ class QuickNoteApp:
             item = tk.Label(
                 nav,
                 text=nav_text,
-                bg=UI_NAV_BG,
-                fg=UI_INACTIVE_PAGE_FG,
+                bg=NOTE_NAV_BG,
+                fg=NOTE_INACTIVE_PAGE_FG,
                 anchor="w",
                 padx=14,
                 pady=9,
@@ -2410,17 +2904,17 @@ class QuickNoteApp:
             item.bind(
                 "<Enter>",
                 lambda _event, target=key, widget=item: widget.configure(
-                    bg=UI_NAV_HOVER_BG
+                    bg=NOTE_NAV_HOVER_BG
                     if active_section_var.get() != target
-                    else UI_NAV_ACTIVE_BG
+                    else NOTE_NAV_ACTIVE_BG
                 ),
             )
             item.bind(
                 "<Leave>",
                 lambda _event, target=key, widget=item: widget.configure(
-                    bg=UI_NAV_ACTIVE_BG
+                    bg=NOTE_NAV_ACTIVE_BG
                     if active_section_var.get() == target
-                    else UI_NAV_BG
+                    else NOTE_NAV_BG
                 ),
             )
             nav_items[key] = item
@@ -2428,8 +2922,8 @@ class QuickNoteApp:
         status = tk.Label(
             footer,
             textvariable=status_var,
-            bg=UI_DIALOG_BG,
-            fg=UI_DANGER,
+            bg=NOTE_DIALOG_BG,
+            fg=NOTE_DANGER,
             anchor="w",
             font=("Microsoft YaHei UI", 9),
         )
@@ -2494,36 +2988,24 @@ class QuickNoteApp:
         dialog.grab_set()
         switch_section(section_key)
 
-    def _page_rail_width(self):
-        names = [str(page["name"]) for page in self.note_pages] + ["+"]
-        try:
-            label_font = tkfont.Font(
-                root=self.root, family=PAGE_LABEL_FONT[0], size=PAGE_LABEL_FONT[1]
-            )
-            content_width = max(label_font.measure(name) for name in names)
-        except tk.TclError:
-            content_width = max(len(name) for name in names) * 12
-        return clamp_page_rail_width(content_width)
-
     def _rebuild_page_tabs(self):
-        self.page_rail.configure(width=self._page_rail_width())
-        for child in self.page_rail.winfo_children():
+        for child in self.page_tabs.winfo_children():
             child.destroy()
         self.page_buttons = {}
 
         for page in self.note_pages:
             page_id = page["id"]
             page_button = tk.Label(
-                self.page_rail,
+                self.page_tabs,
                 text=page["name"],
                 bd=0,
                 padx=PAGE_LABEL_PADDING_X,
-                pady=6,
-                anchor=page_label_anchor(page["name"]),
+                pady=4,
+                anchor="center",
                 font=PAGE_LABEL_FONT,
                 cursor="hand2",
             )
-            page_button.pack(fill="x", pady=(0, 4))
+            page_button.pack(side="left", padx=(0, 4), pady=(0, 4))
             page_button.bind(
                 "<Button-1>", lambda _event, target=page_id: self.switch_page(target)
             )
@@ -2542,18 +3024,18 @@ class QuickNoteApp:
             self.page_buttons[page_id] = page_button
 
         add_button = tk.Label(
-            self.page_rail,
+            self.page_tabs,
             text="+",
             bd=0,
-            padx=0,
-            pady=5,
+            padx=PAGE_LABEL_PADDING_X,
+            pady=4,
             anchor="center",
             font=PAGE_ADD_FONT,
             cursor="hand2",
-            bg=UI_INACTIVE_PAGE_BG,
-            fg=UI_INACTIVE_PAGE_FG,
+            bg=NOTE_INACTIVE_PAGE_BG,
+            fg=NOTE_INACTIVE_PAGE_FG,
         )
-        add_button.pack(fill="x", pady=(4, 0))
+        add_button.pack(side="left", padx=(4, 0), pady=(0, 4))
         add_button.bind("<Button-1>", lambda _event: self.create_page())
         add_button.bind("<Enter>", lambda _event: self._set_add_hover(True))
         add_button.bind("<Leave>", lambda _event: self._set_add_hover(False))
@@ -2625,21 +3107,20 @@ class QuickNoteApp:
         if self.add_page_button is not None:
             self._apply_add_button_style(False)
         if self.page_title_label is not None:
-            self.page_title_label.configure(
-                text=f"Quick Note · {self._page_name(self.current_page)}"
-            )
+            # 显示当前页名,而非写死 "Quick Note"
+            self.page_title_label.configure(text=self._page_name(self.current_page))
 
     def _apply_page_button_style(self, page, button, hover=False):
         active = page == self.current_page
         if active:
-            bg = UI_ACTIVE_PAGE_BG
-            fg = UI_ACTIVE_PAGE_FG
+            bg = NOTE_ACTIVE_PAGE_BG
+            fg = NOTE_ACTIVE_PAGE_FG
         elif hover:
-            bg = UI_PAGE_HOVER_BG
-            fg = UI_TEXT
+            bg = NOTE_PAGE_HOVER_BG
+            fg = NOTE_TEXT
         else:
-            bg = UI_INACTIVE_PAGE_BG
-            fg = UI_INACTIVE_PAGE_FG
+            bg = NOTE_INACTIVE_PAGE_BG
+            fg = NOTE_INACTIVE_PAGE_FG
 
         button.configure(bg=bg, fg=fg)
 
@@ -2649,8 +3130,8 @@ class QuickNoteApp:
             self._apply_page_button_style(page, button, hover)
 
     def _apply_add_button_style(self, hover):
-        bg = UI_NAV_HOVER_BG if hover else UI_INACTIVE_PAGE_BG
-        fg = UI_ACCENT if hover else UI_INACTIVE_PAGE_FG
+        bg = NOTE_PAGE_HOVER_BG if hover else NOTE_INACTIVE_PAGE_BG
+        fg = NOTE_ACCENT if hover else NOTE_INACTIVE_PAGE_FG
         self.add_page_button.configure(bg=bg, fg=fg)
 
     def _set_add_hover(self, hover):
@@ -2660,16 +3141,23 @@ class QuickNoteApp:
     def _set_hide_hover(self, hover):
         if self.hide_button is None:
             return
-        bg = UI_CLOSE_HOVER_BG if hover else UI_HEADER_BG
-        fg = UI_CLOSE_HOVER_FG if hover else UI_MUTED_TEXT
+        bg = NOTE_CLOSE_HOVER_BG if hover else NOTE_HEADER_BG
+        fg = NOTE_CLOSE_HOVER_FG if hover else NOTE_MUTED_TEXT
         self.hide_button.configure(bg=bg, fg=fg)
 
     def _set_settings_hover(self, hover):
         if self.settings_button is None:
             return
-        bg = UI_HEADER_BUTTON_HOVER if hover else UI_HEADER_BG
-        fg = UI_TEXT if hover else UI_MUTED_TEXT
+        bg = NOTE_HEADER_BUTTON_HOVER if hover else NOTE_HEADER_BG
+        fg = NOTE_TEXT if hover else NOTE_MUTED_TEXT
         self.settings_button.configure(bg=bg, fg=fg)
+
+    def _set_footer_btn_hover(self, btn, hover):
+        """底部操作栏按钮的 hover 反馈(暖色)。"""
+        if btn is None:
+            return
+        fg = NOTE_ACCENT if hover else NOTE_MUTED_TEXT
+        btn.configure(fg=fg)
 
     def _poll_events(self):
         self.hook_check_ticks += 1
@@ -2801,6 +3289,7 @@ class QuickNoteApp:
             return
 
         self.ocr_active = True
+        update_ocr_status_if_available(self, True)
         self.hide_and_save()
         overlay = ScreenCaptureOverlay(self.root, self._on_capture_complete)
         self.capture_overlay = overlay
@@ -2808,6 +3297,7 @@ class QuickNoteApp:
             overlay.start()
         except Exception as exc:
             self.ocr_active = False
+            update_ocr_status_if_available(self, False)
             self.capture_overlay = None
             log(f"OCR overlay failed: {exc}")
             self._show_short_message(f"框选启动失败：{exc}")
@@ -2816,6 +3306,7 @@ class QuickNoteApp:
         self.capture_overlay = None
         if error:
             self.ocr_active = False
+            update_ocr_status_if_available(self, False)
             self._show_short_message(error)
             log(error)
             return
@@ -2845,6 +3336,7 @@ class QuickNoteApp:
 
     def _finish_ocr_translation(self, result, error):
         self.ocr_active = False
+        update_ocr_status_if_available(self, False)
         if error:
             self._show_short_message(error)
             return
@@ -2859,7 +3351,9 @@ class QuickNoteApp:
         if current.strip():
             self.text.insert("end", "\n\n")
 
-        self.text.insert("end", self.note_store.format_note_record(result))
+        # 原文/译文分别着色,存储格式不变(向后兼容)
+        self.text.insert("end", f"原文：{result.source_text}\n", ("src",))
+        self.text.insert("end", f"译文：{result.translation}\n", ("dst",))
         self.text.see("end")
         self.save_note()
 
@@ -2870,8 +3364,8 @@ class QuickNoteApp:
         label = tk.Label(
             toast,
             text=message,
-            bg=UI_TOAST_BG,
-            fg=UI_TOAST_FG,
+            bg=NOTE_TOAST_BG,
+            fg=NOTE_TOAST_FG,
             padx=12,
             pady=7,
             font=("Microsoft YaHei UI", 10),
@@ -2890,14 +3384,38 @@ class QuickNoteApp:
             content = note_file.read_text(encoding="utf-8")
             if content:
                 self.text.insert("1.0", content)
+                self._apply_translation_tags()
                 return
 
         self._insert_placeholder()
 
+    def _apply_translation_tags(self):
+        """扫描已加载的笔记文本,为 原文：/译文： 行回填 src/dst tag。"""
+        self.text.tag_remove("src", "1.0", "end")
+        self.text.tag_remove("dst", "1.0", "end")
+        start = "1.0"
+        while True:
+            line_start = self.text.search(
+                "原文：", start, stopindex="end", regexp=False
+            )
+            if not line_start:
+                break
+            line_end = f"{line_start} lineend"
+            self.text.tag_add("src", line_start, line_end)
+            # 下一行通常是译文
+            dst_line = f"{line_start} +1l"
+            dst_end = f"{dst_line} lineend"
+            dst_text = self.text.get(dst_line, dst_end)
+            if dst_text.startswith("译文："):
+                self.text.tag_add("dst", dst_line, dst_end)
+                start = f"{dst_end} +1c"
+            else:
+                start = f"{line_end} +1c"
+
     def _insert_placeholder(self):
         self.text.insert("1.0", PLACEHOLDER_TEXT)
         self.text.tag_add("placeholder", "1.0", "end")
-        self.text.tag_config("placeholder", foreground=UI_MUTED_TEXT)
+        self.text.tag_config("placeholder", foreground=NOTE_MUTED_TEXT)
         self.text.bind("<FocusIn>", self._remove_placeholder, add="+")
 
     def _is_placeholder_active(self):
@@ -2943,6 +3461,7 @@ class QuickNoteApp:
             MIN_WINDOW_HEIGHT,
         )
         self.root.geometry(f"{width}x{height}+{self.root.winfo_x()}+{self.root.winfo_y()}")
+        self._update_window_size_label()
         return "break"
 
     def _finish_resize(self, _event):

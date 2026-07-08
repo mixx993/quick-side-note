@@ -1,7 +1,7 @@
 ﻿Quick Side Note 侧键便签
 
 安装方式：
-  双击 QuickSideNote_Setup_v1.4.3.exe，根据安装向导完成安装。
+  双击 QuickSideNote_Setup_v1.5.0.exe，根据安装向导完成安装。
   默认安装到当前 Windows 用户目录，不需要管理员权限。
   安装完成后，可以从开始菜单启动 Quick Side Note。
 
@@ -33,6 +33,12 @@
   API 页可以配置、显示或清除 DeepSeek API Key。
   输入页可以选择鼠标侧键 1 或侧键 2，调整浏览器键拦截和双击判定间隔。
   开机启动页可以开启或关闭 Windows 登录后自动启动。
+
+v1.5.0 界面：
+  主便签窗口采用暖色纸张质感。
+  多页便签页签移动到顶部横排。
+  底部增加保存、清空、隐藏和设置入口。
+  设置页输入区支持滚动，较小窗口下内容不会被截断。
 
 数据保存位置：
   %USERPROFILE%\Documents\QuickSideNote\note.txt

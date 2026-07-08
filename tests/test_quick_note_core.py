@@ -227,7 +227,7 @@ class WindowGeometryTests(unittest.TestCase):
     def test_normalize_uses_default_for_invalid_geometry(self):
         geometry = quick_note.normalize_window_geometry("bad")
 
-        self.assertEqual(geometry, "420x300+760+260")
+        self.assertEqual(geometry, "440x340+760+260")
 
     def test_parse_window_size_reads_saved_size(self):
         size = quick_note.parse_window_size("560x340+10+20")
