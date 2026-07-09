@@ -10,19 +10,20 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
 import urllib.error
 import urllib.request
 from ctypes import wintypes
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
-from tkinter import simpledialog, font as tkfont
+from tkinter import messagebox, simpledialog, font as tkfont
 from PIL import Image, ImageGrab, ImageOps
 
 
 APP_NAME = "Quick Side Note"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.2"
 NOTE_DIR = Path.home() / "Documents" / "QuickSideNote"
 NOTE_FILE = NOTE_DIR / "note.txt"
 DEFAULT_NOTE_PAGES = (
@@ -57,6 +58,7 @@ WM_QUIT = 0x0012
 ERROR_ALREADY_EXISTS = 183
 VK_BROWSER_BACK = 0xA6
 VK_BROWSER_FORWARD = 0xA7
+VK_ESCAPE = 0x1B
 SW_SHOWNORMAL = 1
 HWND_TOPMOST = -1
 HWND_NOTOPMOST = -2
@@ -87,8 +89,8 @@ SM_CYVIRTUALSCREEN = 79
 POPUP_OFFSET = 10
 WINDOW_WIDTH = 440
 WINDOW_HEIGHT = 340
-MIN_WINDOW_WIDTH = 300
-MIN_WINDOW_HEIGHT = 200
+MIN_WINDOW_WIDTH = 380
+MIN_WINDOW_HEIGHT = 300
 DEFAULT_WINDOW_X = 760
 DEFAULT_WINDOW_Y = 260
 MAX_PAGE_NAME_CHARS = 12
@@ -157,8 +159,8 @@ NOTE_HEADER_TEXT = "#3a2f24"
 NOTE_PAPER_BG = "#faf6ee"
 NOTE_PAPER_BORDER = "#e8dec9"
 NOTE_TEXT = "#3a2f24"
-NOTE_MUTED_TEXT = "#8a7a66"
-NOTE_ACCENT = "#c8732a"
+NOTE_MUTED_TEXT = "#6f604e"
+NOTE_ACCENT = "#9b4f16"
 NOTE_ACCENT_SOFT = "#f7e8d6"
 NOTE_ACCENT_SOFTER = "#fbf2e6"
 NOTE_ACCENT_HOVER = "#eed9bf"
@@ -171,7 +173,7 @@ NOTE_PAGE_HOVER_BG = "#ede3d3"
 NOTE_ACTIVE_PAGE_BG = NOTE_ACCENT_SOFT
 NOTE_ACTIVE_PAGE_FG = NOTE_ACCENT
 NOTE_INACTIVE_PAGE_BG = NOTE_SHELL_BG
-NOTE_INACTIVE_PAGE_FG = "#8a7a66"
+NOTE_INACTIVE_PAGE_FG = NOTE_MUTED_TEXT
 NOTE_HEADER_BUTTON_HOVER = "#ede3d3"
 NOTE_CLOSE_HOVER_BG = "#f7e2cf"
 NOTE_CLOSE_HOVER_FG = "#a85f20"
@@ -182,8 +184,8 @@ NOTE_WARNING_SOFT = "#f7e8cf"
 NOTE_AUTOSAVE_BG = NOTE_ACCENT_SOFTER
 NOTE_AUTOSAVE_FG = NOTE_MUTED_TEXT
 NOTE_FOOTER_BG = NOTE_PAPER_BG
-NOTE_FOOTER_HINT = "#a89880"
-NOTE_SRC_TAG = "#8a7a66"
+NOTE_FOOTER_HINT = "#6b5b49"
+NOTE_SRC_TAG = NOTE_MUTED_TEXT
 NOTE_DST_TAG = NOTE_ACCENT
 NOTE_TOAST_BG = "#2a2118"
 NOTE_TOAST_FG = "#faf6ee"
@@ -198,7 +200,7 @@ NOTE_FIELD_BG = "#fdfaf3"
 NOTE_DIVIDER = "#e2d6c2"
 NOTE_DANGER = "#a8442a"
 NOTE_DANGER_SOFT = "#f5e2d8"
-NOTE_SUCCESS = "#5a8a4e"
+NOTE_SUCCESS = "#35662f"
 NOTE_WARNING_NOTE = "#b5730a"
 NOTE_DISABLED_BG = "#e8e0d2"
 NOTE_HEADER_TEXT = "#3a2f24"
@@ -207,6 +209,14 @@ NOTE_DANGER_SOFT = "#f5e2d8"
 
 EVENT_DEBOUNCE_SECONDS = 0.05
 DOUBLE_CLICK_SECONDS = 0.3
+AUTOSAVE_DELAY_MS = 600
+TRANSLATION_TASK_TIMEOUT_SECONDS = 30
+CLEAR_UNDO_WINDOW_MS = 8000
+SETTINGS_WORK_AREA_FRACTION = 0.9
+HOOK_RETRY_MAX_SECONDS = 30
+HOOK_RETRY_MAX_FAILURES = 6
+MAX_LOG_BYTES = 1_048_576
+MAX_LOG_FILES = 3
 CODEX_TIMEOUT_SECONDS = 25
 CODEX_MODEL = "gpt-5.4-mini"
 CODEX_REASONING_EFFORT = "low"
@@ -217,6 +227,12 @@ DEFAULT_APP_SETTINGS = {
     "side_button": "xbutton1",
     "block_browser_key": True,
     "double_click_ms": 300,
+    "side_response_mode": "compatibility",
+    "allow_image_fallback": False,
+}
+SIDE_RESPONSE_MODES = {
+    "compatibility": "兼容模式",
+    "immediate": "即时框选",
 }
 SIDE_BUTTON_OPTIONS = {
     "xbutton1": {
@@ -281,6 +297,7 @@ ULONG_PTR = wintypes.WPARAM
 LRESULT = wintypes.LPARAM
 INSTANCE_MUTEX = None
 DPI_AWARENESS_CONFIGURED = False
+LOG_LOCK = threading.Lock()
 WINDOW_GEOMETRY_RE = re.compile(r"^(?:(\d+)x(\d+))?([+-]\d+)([+-]\d+)$")
 HICON = getattr(wintypes, "HICON", wintypes.HANDLE)
 HMENU = getattr(wintypes, "HMENU", wintypes.HANDLE)
@@ -290,6 +307,15 @@ HBRUSH = getattr(wintypes, "HBRUSH", wintypes.HANDLE)
 
 class POINT(ctypes.Structure):
     _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
 
 
 class MSLLHOOKSTRUCT(ctypes.Structure):
@@ -395,6 +421,10 @@ user32.GetSystemMetrics.argtypes = (ctypes.c_int,)
 user32.GetSystemMetrics.restype = ctypes.c_int
 user32.GetCursorPos.argtypes = (ctypes.POINTER(POINT),)
 user32.GetCursorPos.restype = wintypes.BOOL
+user32.MonitorFromPoint.argtypes = (POINT, wintypes.DWORD)
+user32.MonitorFromPoint.restype = wintypes.HANDLE
+user32.GetMonitorInfoW.argtypes = (wintypes.HANDLE, ctypes.POINTER(MONITORINFO))
+user32.GetMonitorInfoW.restype = wintypes.BOOL
 user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
 user32.ShowWindow.restype = wintypes.BOOL
 user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
@@ -501,17 +531,155 @@ def configure_dpi_awareness():
 
 def log(message):
     try:
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        with LOG_FILE.open("a", encoding="utf-8") as file:
-            file.write(f"{timestamp} {message}\n")
+        with LOG_LOCK:
+            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _rotate_log_if_needed()
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            with LOG_FILE.open("a", encoding="utf-8") as file:
+                file.write(f"{timestamp} {str(message)[:500]}\n")
     except OSError:
         pass
+
+
+def _rotate_log_if_needed():
+    if not LOG_FILE.exists() or LOG_FILE.stat().st_size < MAX_LOG_BYTES:
+        return
+
+    oldest = LOG_FILE.with_name(f"{LOG_FILE.name}.{MAX_LOG_FILES}")
+    oldest.unlink(missing_ok=True)
+    for index in range(MAX_LOG_FILES - 1, 0, -1):
+        source = LOG_FILE.with_name(f"{LOG_FILE.name}.{index}")
+        if source.exists():
+            source.replace(LOG_FILE.with_name(f"{LOG_FILE.name}.{index + 1}"))
+    LOG_FILE.replace(LOG_FILE.with_name(f"{LOG_FILE.name}.1"))
+
+
+def backup_file_for(path):
+    path = Path(path)
+    return path.with_name(f"{path.name}.bak")
+
+
+def atomic_write_text(path, content, encoding="utf-8"):
+    """Write a text file without exposing a partially written target file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        descriptor, temp_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            text=True,
+        )
+        temp_path = Path(temp_name)
+        with os.fdopen(descriptor, "w", encoding=encoding, newline="") as file:
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        if path.exists():
+            shutil.copy2(path, backup_file_for(path))
+        os.replace(temp_path, path)
+    except Exception:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
+
+
+def read_text_with_fallback(path):
+    path = Path(path)
+    last_error = None
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return path.read_text(encoding=encoding)
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    return path.read_text(encoding="utf-8")
+
+
+def read_text_with_backup(path):
+    path = Path(path)
+    errors = []
+    for candidate, recovered in ((path, False), (backup_file_for(path), True)):
+        if not candidate.exists():
+            continue
+        try:
+            return read_text_with_fallback(candidate), recovered
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(exc)
+    if errors:
+        raise errors[-1]
+    raise FileNotFoundError(path)
+
+
+def discover_note_pages():
+    pages = list(DEFAULT_NOTE_PAGES)
+    if not NOTE_DIR.exists():
+        return pages
+
+    page_ids = {page["id"] for page in pages}
+    for note_path in NOTE_DIR.glob("note-*.txt"):
+        match = re.fullmatch(r"note-(\d+)\.txt", note_path.name)
+        if not match:
+            continue
+        page_id = int(match.group(1))
+        if page_id > 0 and page_id not in page_ids:
+            pages.append({"id": page_id, "name": str(page_id)})
+            page_ids.add(page_id)
+    return normalize_note_pages(pages)
+
+
+def monitor_work_area_for_point(x, y, fallback_width, fallback_height):
+    """Return the target monitor work area, with a primary-screen fallback."""
+    try:
+        monitor = user32.MonitorFromPoint(POINT(x, y), 2)
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            return (
+                info.rcWork.left,
+                info.rcWork.top,
+                info.rcWork.right,
+                info.rcWork.bottom,
+            )
+    except Exception:
+        pass
+    return 0, 0, fallback_width, fallback_height
+
+
+def clamp_dialog_to_work_area(
+    requested_width,
+    requested_height,
+    work_area,
+    fraction=SETTINGS_WORK_AREA_FRACTION,
+):
+    """Fit a settings dialog inside the target monitor's usable work area."""
+    left, top, right, bottom = work_area
+    available_width = max(1, int(right) - int(left))
+    available_height = max(1, int(bottom) - int(top))
+    maximum_width = max(320, int(available_width * fraction))
+    maximum_height = max(260, int(available_height * fraction))
+    width = min(max(320, int(requested_width)), maximum_width, available_width)
+    height = min(max(260, int(requested_height)), maximum_height, available_height)
+    x = int(left) + max(0, (available_width - width) // 2)
+    y = int(top) + max(0, (available_height - height) // 2)
+    return width, height, x, y
 
 
 @dataclass(frozen=True)
 class TranslationResult:
     source_text: str
     translation: str
+
+
+@dataclass
+class TranslationTask:
+    task_id: int
+    image_path: Path
+    cancelled: threading.Event = field(default_factory=threading.Event)
+    started_at: float = field(default_factory=time.monotonic)
+    timeout_after_id: object = None
 
 
 @dataclass(frozen=True)
@@ -640,12 +808,22 @@ def note_file_for_page(page):
 
 
 def read_state_data():
-    if not STATE_FILE.exists():
+    if not STATE_FILE.exists() and not backup_file_for(STATE_FILE).exists():
         return {}
-    try:
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+    for candidate, recovered in ((STATE_FILE, False), (backup_file_for(STATE_FILE), True)):
+        if not candidate.exists():
+            continue
+        try:
+            data = json.loads(read_text_with_fallback(candidate))
+            if not isinstance(data, dict):
+                raise json.JSONDecodeError("state is not an object", "", 0)
+            if recovered:
+                log("state recovered from backup")
+            return data
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+    log("state could not be read; using recoverable defaults")
+    return {}
 
 
 def normalize_bool(value, default=False):
@@ -679,6 +857,15 @@ def normalize_app_settings(settings):
     if side_button not in SIDE_BUTTON_OPTIONS:
         side_button = DEFAULT_APP_SETTINGS["side_button"]
 
+    side_response_mode = str(
+        settings.get(
+            "side_response_mode",
+            DEFAULT_APP_SETTINGS["side_response_mode"],
+        )
+    ).strip().lower()
+    if side_response_mode not in SIDE_RESPONSE_MODES:
+        side_response_mode = DEFAULT_APP_SETTINGS["side_response_mode"]
+
     return {
         "side_button": side_button,
         "block_browser_key": normalize_bool(
@@ -690,6 +877,11 @@ def normalize_app_settings(settings):
             MIN_DOUBLE_CLICK_MS,
             MAX_DOUBLE_CLICK_MS,
             DEFAULT_APP_SETTINGS["double_click_ms"],
+        ),
+        "side_response_mode": side_response_mode,
+        "allow_image_fallback": normalize_bool(
+            settings.get("allow_image_fallback"),
+            DEFAULT_APP_SETTINGS["allow_image_fallback"],
         ),
     }
 
@@ -856,6 +1048,8 @@ class NoteStore:
         }
         with self.vocabulary_file.open("a", encoding="utf-8") as file:
             file.write(json.dumps(record, ensure_ascii=False) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
 
     def format_note_record(self, result):
         return f"原文：{result.source_text}\n译文：{result.translation}\n"
@@ -941,6 +1135,41 @@ def delete_user_environment_value(name):
 
 def is_deepseek_api_configured():
     return bool(get_user_environment_value("DEEPSEEK_API_KEY"))
+
+
+def verify_deepseek_api_key(api_key):
+    """Validate an entered key without saving it or exposing it in logs."""
+    api_key = normalize_api_key(api_key)
+    if not is_plausible_api_key(api_key):
+        return False, "API Key 看起来不完整。"
+
+    body = {
+        "model": DEEPSEEK_TEXT_MODEL,
+        "messages": [{"role": "user", "content": "Reply with OK."}],
+        "max_tokens": 4,
+        "temperature": 0,
+    }
+    request = urllib.request.Request(
+        DEEPSEEK_CHAT_COMPLETIONS_URL,
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=DEEPSEEK_TIMEOUT_SECONDS):
+            pass
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            return False, "验证失败：API Key 无效或没有权限。"
+        return False, f"验证失败：服务返回 HTTP {exc.code}。"
+    except OSError:
+        return False, "验证失败：无法连接 DeepSeek 服务。"
+    except Exception:
+        return False, "验证失败：响应格式异常。"
+    return True, "连接正常，API Key 可用。"
 
 
 def normalize_ocr_text(text):
@@ -1056,10 +1285,11 @@ class DeepSeekTextBackend:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 response_text = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"DeepSeek text translation failed: {detail}") from exc
+            raise RuntimeError(
+                f"DeepSeek text translation failed (HTTP {exc.code})"
+            ) from exc
         except OSError as exc:
-            raise RuntimeError(f"DeepSeek text translation failed: {exc}") from exc
+            raise RuntimeError("DeepSeek text translation failed due to a network error") from exc
 
         data = json.loads(response_text)
         try:
@@ -1072,31 +1302,46 @@ class DeepSeekTextBackend:
 
 
 class FastTranslationBackend:
-    def __init__(self, fallback_backend):
+    def __init__(self, fallback_backend, image_fallback_enabled=False):
         self.ocr_backend = WindowsOcrBackend()
         self.text_backend = DeepSeekTextBackend()
         self.fallback_backend = fallback_backend
+        self.image_fallback_enabled = image_fallback_enabled
 
-    def translate_image(self, image_path):
+    def _image_fallback_is_enabled(self):
+        if callable(self.image_fallback_enabled):
+            return bool(self.image_fallback_enabled())
+        return bool(self.image_fallback_enabled)
+
+    def translate_image(self, image_path, progress_callback=None):
         started = time.perf_counter()
         try:
+            if progress_callback:
+                progress_callback("recognizing")
             ocr_started = time.perf_counter()
             source_text = normalize_ocr_text(self.ocr_backend.recognize_text(image_path))
             log(
-                "windows OCR recognized "
-                f"{source_text!r} in {time.perf_counter() - ocr_started:.2f}s"
+                "windows OCR completed "
+                f"text_length={len(source_text)} elapsed={time.perf_counter() - ocr_started:.2f}s"
             )
         except Exception as exc:
-            log(f"fast OCR failed, falling back to Codex CLI: {exc}")
+            log(f"windows OCR failed: {type(exc).__name__}")
+            if not self._image_fallback_is_enabled():
+                raise RuntimeError(
+                    "本地 OCR 无法识别。请检查 Windows 英语 OCR 语言包，"
+                    "或在设置中明确开启图片兜底。"
+                ) from exc
             fallback_started = time.perf_counter()
             result = self.fallback_backend.translate_image(image_path)
-            log(f"Codex CLI fallback completed in {time.perf_counter() - fallback_started:.2f}s")
+            log(f"image fallback completed in {time.perf_counter() - fallback_started:.2f}s")
             return result
 
         try:
+            if progress_callback:
+                progress_callback("translating")
             result = self.text_backend.translate_text(source_text)
         except Exception as exc:
-            log(f"fast text translation failed: {exc}")
+            log(f"text translation failed: {type(exc).__name__}")
             raise
 
         log(f"fast translation completed in {time.perf_counter() - started:.2f}s")
@@ -1175,52 +1420,108 @@ def hidden_subprocess_kwargs():
     }
 
 
-class MouseSideButtonHook:
-    def __init__(self, event_queue, settings_provider=None):
-        self.event_queue = event_queue
-        self.settings_provider = settings_provider or (lambda: DEFAULT_APP_SETTINGS)
+class _WindowsHookBase:
+    def __init__(self, hook_type, callback, name):
+        self.hook_type = hook_type
+        self._callback = callback
+        self.name = name
         self.hook_id = None
         self.thread_id = None
-        self._callback = LowLevelMouseProc(self._handle_mouse)
-        self._ready = threading.Event()
         self.thread = None
+        self._ready = threading.Event()
+        self._lock = threading.Lock()
+        self._stopping = False
+        self.failure_count = 0
+        self.next_retry_at = 0.0
 
     def start(self):
-        if self.is_alive():
-            return
-        self._ready.clear()
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
+        with self._lock:
+            if self._stopping:
+                return False
+            if self.thread is not None and self.thread.is_alive():
+                return bool(self.hook_id)
+            if time.monotonic() < self.next_retry_at:
+                return False
+            self._ready.clear()
+            self.thread = threading.Thread(target=self._run, daemon=True, name=f"QuickSideNote-{self.name}")
+            self.thread.start()
         self._ready.wait(timeout=2)
+        return self.is_alive()
 
     def stop(self):
-        if self.thread_id:
-            user32.PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0)
+        with self._lock:
+            self._stopping = True
+            thread_id = self.thread_id
+        if thread_id:
+            user32.PostThreadMessageW(thread_id, WM_QUIT, 0, 0)
+
+    def join(self, timeout=2):
+        thread = self.thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=timeout)
 
     def is_alive(self):
-        return bool(self.thread and self.thread.is_alive() and self.hook_id)
+        with self._lock:
+            return bool(self.thread and self.thread.is_alive() and self.hook_id)
+
+    def _record_install_failure(self):
+        with self._lock:
+            self.failure_count += 1
+            delay = min(2 ** (self.failure_count - 1), HOOK_RETRY_MAX_SECONDS)
+            if self.failure_count >= HOOK_RETRY_MAX_FAILURES:
+                delay = HOOK_RETRY_MAX_SECONDS
+            self.next_retry_at = time.monotonic() + delay
+        log(f"{self.name} hook install failed; retry_after={delay}s")
 
     def _run(self):
-        self.thread_id = kernel32.GetCurrentThreadId()
-        self.hook_id = user32.SetWindowsHookExW(
-            WH_MOUSE_LL,
+        current_thread_id = kernel32.GetCurrentThreadId()
+        with self._lock:
+            self.thread_id = current_thread_id
+
+        hook_id = user32.SetWindowsHookExW(
+            self.hook_type,
             ctypes.cast(self._callback, ctypes.c_void_p),
             kernel32.GetModuleHandleW(None),
             0,
         )
-        if not self.hook_id:
-            log(f"mouse hook failed: {kernel32.GetLastError()}")
+        if not hook_id:
+            self._record_install_failure()
+            with self._lock:
+                if self.thread_id == current_thread_id:
+                    self.thread_id = None
+            self._ready.set()
+            return
+
+        with self._lock:
+            self.hook_id = hook_id
+            self.failure_count = 0
+            self.next_retry_at = 0.0
         self._ready.set()
 
-        msg = wintypes.MSG()
-        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
+        try:
+            msg = wintypes.MSG()
+            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
+        finally:
+            user32.UnhookWindowsHookEx(hook_id)
+            with self._lock:
+                if self.hook_id == hook_id:
+                    self.hook_id = None
+                if self.thread_id == current_thread_id:
+                    self.thread_id = None
 
-        if self.hook_id:
-            user32.UnhookWindowsHookEx(self.hook_id)
-            self.hook_id = None
-        self.thread_id = None
+    def _call_next(self, n_code, w_param, l_param):
+        with self._lock:
+            hook_id = self.hook_id
+        return user32.CallNextHookEx(hook_id, n_code, w_param, l_param)
+
+
+class MouseSideButtonHook(_WindowsHookBase):
+    def __init__(self, event_queue, settings_provider=None):
+        self.event_queue = event_queue
+        self.settings_provider = settings_provider or (lambda: DEFAULT_APP_SETTINGS)
+        super().__init__(WH_MOUSE_LL, LowLevelMouseProc(self._handle_mouse), "mouse")
 
     def _handle_mouse(self, n_code, w_param, l_param):
         if n_code >= 0 and w_param in (WM_XBUTTONDOWN, WM_XBUTTONUP):
@@ -1228,73 +1529,166 @@ class MouseSideButtonHook:
             button = (info.mouseData >> 16) & 0xFFFF
             target_button = side_button_value(self.settings_provider())
             if w_param == WM_XBUTTONDOWN and button == target_button:
-                log(f"mouse side button down at {info.pt.x},{info.pt.y}")
                 self.event_queue.put(("toggle", info.pt.x, info.pt.y))
             if button == target_button:
                 return 1
 
-        return user32.CallNextHookEx(self.hook_id, n_code, w_param, l_param)
+        return self._call_next(n_code, w_param, l_param)
 
 
-class BrowserKeyHook:
-    def __init__(self, event_queue, settings_provider=None):
+class BrowserKeyHook(_WindowsHookBase):
+    def __init__(self, event_queue, settings_provider=None, task_active_provider=None):
         self.event_queue = event_queue
         self.settings_provider = settings_provider or (lambda: DEFAULT_APP_SETTINGS)
-        self.hook_id = None
-        self.thread_id = None
-        self._callback = LowLevelKeyboardProc(self._handle_keyboard)
-        self._ready = threading.Event()
-        self.thread = None
-
-    def start(self):
-        if self.is_alive():
-            return
-        self._ready.clear()
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
-        self._ready.wait(timeout=2)
-
-    def stop(self):
-        if self.thread_id:
-            user32.PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0)
-
-    def is_alive(self):
-        return bool(self.thread and self.thread.is_alive() and self.hook_id)
-
-    def _run(self):
-        self.thread_id = kernel32.GetCurrentThreadId()
-        self.hook_id = user32.SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            ctypes.cast(self._callback, ctypes.c_void_p),
-            kernel32.GetModuleHandleW(None),
-            0,
-        )
-        if not self.hook_id:
-            log(f"keyboard hook failed: {kernel32.GetLastError()}")
-        self._ready.set()
-
-        msg = wintypes.MSG()
-        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
-
-        if self.hook_id:
-            user32.UnhookWindowsHookEx(self.hook_id)
-            self.hook_id = None
-        self.thread_id = None
+        self.task_active_provider = task_active_provider or (lambda: False)
+        super().__init__(WH_KEYBOARD_LL, LowLevelKeyboardProc(self._handle_keyboard), "keyboard")
 
     def _handle_keyboard(self, n_code, w_param, l_param):
         if n_code >= 0 and w_param in (WM_KEYDOWN, WM_SYSKEYDOWN, WM_KEYUP, WM_SYSKEYUP):
             info = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+            if info.vkCode == VK_ESCAPE and self.task_active_provider():
+                if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
+                    self.event_queue.put(("cancel_task",))
+                return 1
             if info.vkCode in blocked_browser_keys_for_settings(self.settings_provider()):
                 if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
                     point = POINT()
                     user32.GetCursorPos(ctypes.byref(point))
-                    log(f"browser key down {info.vkCode} at {point.x},{point.y}")
                     self.event_queue.put(("toggle", point.x, point.y))
                 return 1
 
-        return user32.CallNextHookEx(self.hook_id, n_code, w_param, l_param)
+        return self._call_next(n_code, w_param, l_param)
+
+
+class TaskProgressHud:
+    """A compact task surface that stays visible while the note window is hidden."""
+
+    def __init__(self, root, cancel_callback):
+        self.root = root
+        self.cancel_callback = cancel_callback
+        self.window = tk.Toplevel(root)
+        self.window.withdraw()
+        self.window.overrideredirect(True)
+        self.window.attributes("-topmost", True)
+        self.window.configure(bg=NOTE_TOAST_BG)
+        self.window.bind("<Escape>", lambda _event: self.cancel_callback())
+
+        frame = tk.Frame(
+            self.window,
+            bg=NOTE_TOAST_BG,
+            highlightthickness=1,
+            highlightbackground=NOTE_ACCENT,
+            padx=14,
+            pady=10,
+        )
+        frame.pack(fill="both", expand=True)
+        frame.grid_columnconfigure(0, weight=1)
+
+        self.title_var = tk.StringVar(value="")
+        self.detail_var = tk.StringVar(value="")
+        tk.Label(
+            frame,
+            textvariable=self.title_var,
+            bg=NOTE_TOAST_BG,
+            fg=NOTE_TOAST_FG,
+            anchor="w",
+            font=("Microsoft YaHei UI", 10, "bold"),
+        ).grid(row=0, column=0, sticky="ew")
+        tk.Label(
+            frame,
+            textvariable=self.detail_var,
+            bg=NOTE_TOAST_BG,
+            fg="#e9dac4",
+            anchor="w",
+            justify="left",
+            wraplength=300,
+            font=("Microsoft YaHei UI", 8),
+        ).grid(row=1, column=0, sticky="ew", pady=(3, 0))
+
+        self.actions = tk.Frame(frame, bg=NOTE_TOAST_BG)
+        self.actions.grid(row=2, column=0, sticky="e", pady=(10, 0))
+        self.retry_button = self._make_button(self.actions, "重新框选")
+        self.return_button = self._make_button(self.actions, "返回便签")
+        self.cancel_button = self._make_button(
+            self.actions,
+            "取消 (Esc)",
+            command=self.cancel_callback,
+        )
+
+    def _make_button(self, parent, text, command=None):
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=NOTE_ACCENT_SOFT,
+            fg=NOTE_ACCENT,
+            activebackground=NOTE_ACCENT_HOVER,
+            activeforeground=NOTE_ACCENT_ACTIVE,
+            relief="flat",
+            bd=0,
+            padx=9,
+            pady=4,
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 8, "bold"),
+        )
+
+    def show_status(self, title, detail, cancellable=True):
+        self.title_var.set(title)
+        self.detail_var.set(detail)
+        self.retry_button.pack_forget()
+        self.return_button.pack_forget()
+        self.cancel_button.configure(command=self.cancel_callback)
+        if cancellable:
+            self.cancel_button.pack(side="right")
+        else:
+            self.cancel_button.pack_forget()
+        self._show_near_pointer()
+
+    def show_failure(self, detail, retry_callback, return_callback):
+        self.title_var.set("任务未完成")
+        self.detail_var.set(detail)
+        self.cancel_button.pack_forget()
+        self.retry_button.configure(command=retry_callback)
+        self.return_button.configure(command=return_callback)
+        self.retry_button.pack(side="right")
+        self.return_button.pack(side="right", padx=(0, 6))
+        self._show_near_pointer()
+
+    def show_completed(self, detail):
+        self.show_status("已完成", detail, cancellable=False)
+
+    def hide(self):
+        try:
+            self.window.withdraw()
+        except tk.TclError:
+            pass
+
+    def destroy(self):
+        try:
+            self.window.destroy()
+        except tk.TclError:
+            pass
+
+    def _show_near_pointer(self):
+        try:
+            self.window.update_idletasks()
+            width = self.window.winfo_reqwidth()
+            height = self.window.winfo_reqheight()
+            pointer_x = self.root.winfo_pointerx()
+            pointer_y = self.root.winfo_pointery()
+            left, top, right, bottom = monitor_work_area_for_point(
+                pointer_x,
+                pointer_y,
+                self.root.winfo_screenwidth(),
+                self.root.winfo_screenheight(),
+            )
+            x = min(max(pointer_x + 12, left), right - width)
+            y = min(max(pointer_y + 12, top), bottom - height)
+            self.window.geometry(f"{width}x{height}+{x}+{y}")
+            self.window.deiconify()
+            self.window.lift()
+        except tk.TclError:
+            pass
 
 
 class ScreenCaptureOverlay:
@@ -1784,7 +2178,7 @@ class QuickNoteApp:
             self.root.iconbitmap(ICON_FILE)
         state = read_state_data()
         self.settings = normalize_app_settings(state.get(SETTINGS_STATE_KEY))
-        self.note_pages = normalize_note_pages(state.get("pages"))
+        self.note_pages = normalize_note_pages(state.get("pages") or discover_note_pages())
         self.current_page = self._load_active_page()
         self.page_buttons = {}
         self.add_page_button = None
@@ -1794,6 +2188,9 @@ class QuickNoteApp:
         self.editor_size_label = None
         self.hide_button = None
         self.settings_button = None
+        self.footer_hint_left = None
+        self.footer_hint_right = None
+        self.clear_undo_label = None
         self.tray_icon = None
         self.root.geometry(self._load_geometry())
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
@@ -1803,7 +2200,11 @@ class QuickNoteApp:
 
         self.events = queue.Queue()
         self.mouse_hook = MouseSideButtonHook(self.events, lambda: self.settings)
-        self.browser_key_hook = BrowserKeyHook(self.events, lambda: self.settings)
+        self.browser_key_hook = BrowserKeyHook(
+            self.events,
+            lambda: self.settings,
+            lambda: self.ocr_active,
+        )
         self.visible = True
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -1816,14 +2217,28 @@ class QuickNoteApp:
         self.pending_single_click = None
         self.ocr_active = False
         self.capture_overlay = None
-        self.backend = FastTranslationBackend(CodexCliBackend())
+        self.translation_task = None
+        self.next_translation_task_id = 0
+        self.task_hud = None
+        self.task_restore_visible = False
+        self.clear_undo_state = None
+        self.clear_undo_after_id = None
+        self.api_setup_after_id = None
+        self.closing = False
+        self.autosave_after_id = None
+        self.backend = FastTranslationBackend(
+            CodexCliBackend(),
+            lambda: self.settings["allow_image_fallback"],
+        )
         self.note_store = NoteStore(NOTE_FILE, VOCABULARY_FILE)
 
         self._build_ui()
         self._load_note()
         self._bind_keys()
+        self.text.bind("<<Modified>>", self._on_note_modified, add="+")
+        self._set_autosave_status("已保存")
         self._poll_events()
-        self.root.after(250, self._ensure_api_setup)
+        self.api_setup_after_id = self.root.after(250, self._ensure_api_setup)
 
     def run(self):
         log("app start")
@@ -1835,9 +2250,13 @@ class QuickNoteApp:
         try:
             self.root.mainloop()
         finally:
+            self.closing = True
+            self._cancel_translation_task(show_message=False)
             self._destroy_tray_icon()
             self.mouse_hook.stop()
             self.browser_key_hook.stop()
+            self.mouse_hook.join()
+            self.browser_key_hook.join()
 
     def _init_tray_icon(self):
         if sys.platform != "win32" or self.tray_icon is not None:
@@ -1885,11 +2304,11 @@ class QuickNoteApp:
 
         self.hide_button = tk.Label(
             header,
-            text="×",
+            text="隐藏",
             bg=NOTE_HEADER_BG,
             fg=NOTE_MUTED_TEXT,
             bd=0,
-            width=4,
+            width=5,
             anchor="center",
             cursor="hand2",
             font=("Microsoft YaHei UI", 12),
@@ -1917,21 +2336,60 @@ class QuickNoteApp:
 
         self.ocr_status_label = tk.Label(
             header,
-            text="● OCR",
+            text="就绪",
             bg=NOTE_OCR_SOFT,
             fg=NOTE_OCR,
             bd=0,
             padx=6,
             pady=1,
             anchor="center",
-            font=("Consolas", 8),
+            font=("Microsoft YaHei UI", 8, "bold"),
         )
         self.ocr_status_label.pack(side="right", padx=(0, 8), pady=8)
 
-        # --- 顶部横排页签(替代原左侧竖排 page_rail) ---
-        self.page_tabs = tk.Frame(shell, bg=NOTE_SHELL_BG, height=32)
-        self.page_tabs.pack(fill="x", pady=(8, 6))
-        self.page_tabs.pack_propagate(False)
+        # --- 顶部页签：可横向浏览，更多菜单始终保留入口 ---
+        page_tab_bar = tk.Frame(shell, bg=NOTE_SHELL_BG, height=34)
+        page_tab_bar.pack(fill="x", pady=(8, 6))
+        page_tab_bar.pack_propagate(False)
+        self.page_overflow_button = tk.Button(
+            page_tab_bar,
+            text="更多",
+            command=self._show_page_overflow_menu,
+            bg=NOTE_INACTIVE_PAGE_BG,
+            fg=NOTE_INACTIVE_PAGE_FG,
+            activebackground=NOTE_PAGE_HOVER_BG,
+            activeforeground=NOTE_TEXT,
+            relief="flat",
+            bd=0,
+            padx=8,
+            pady=3,
+            cursor="hand2",
+            takefocus=True,
+            font=("Microsoft YaHei UI", 8),
+        )
+        self.page_overflow_button.pack(side="right", pady=(0, 4))
+        self.page_tab_canvas = tk.Canvas(
+            page_tab_bar,
+            bg=NOTE_SHELL_BG,
+            bd=0,
+            highlightthickness=0,
+            height=30,
+        )
+        self.page_tab_canvas.pack(side="left", fill="both", expand=True)
+        self.page_tabs = tk.Frame(self.page_tab_canvas, bg=NOTE_SHELL_BG)
+        self.page_tab_window = self.page_tab_canvas.create_window(
+            (0, 0),
+            window=self.page_tabs,
+            anchor="nw",
+        )
+        self.page_tabs.bind("<Configure>", self._sync_page_tab_region)
+        self.page_tab_canvas.bind("<Configure>", self._sync_page_tab_region)
+        self.page_tab_canvas.bind(
+            "<Shift-MouseWheel>",
+            lambda event: self.page_tab_canvas.xview_scroll(
+                int(-event.delta / 120), "units"
+            ),
+        )
         self._rebuild_page_tabs()
 
         # --- 编辑器卡片(纸张质感) ---
@@ -1947,7 +2405,7 @@ class QuickNoteApp:
 
         self.autosave_label = tk.Label(
             editor_meta,
-            text="Auto saved",
+            text="已保存",
             bg=NOTE_AUTOSAVE_BG,
             fg=NOTE_AUTOSAVE_FG,
             bd=0,
@@ -2002,7 +2460,7 @@ class QuickNoteApp:
         )
 
         # --- 底部操作栏(替代原静态提示) ---
-        editor_footer = tk.Frame(editor_surface, bg=NOTE_FOOTER_BG, height=30)
+        editor_footer = tk.Frame(editor_surface, bg=NOTE_FOOTER_BG, height=34)
         editor_footer.pack(side="bottom", fill="x", padx=14, pady=(4, 8))
         editor_footer.pack_propagate(False)
 
@@ -2058,7 +2516,7 @@ class QuickNoteApp:
         self.footer_hide_btn.bind("<Leave>", lambda _event: self._set_footer_btn_hover(self.footer_hide_btn, False))
 
         # 快捷键小字提示(左)
-        tk.Label(
+        self.footer_hint_left = tk.Label(
             editor_footer,
             text="Ctrl+S · Ctrl+L · Esc",
             bg=NOTE_FOOTER_BG,
@@ -2068,7 +2526,8 @@ class QuickNoteApp:
             pady=2,
             anchor="w",
             font=("Microsoft YaHei UI", 8),
-        ).pack(side="left", pady=4)
+        )
+        self.footer_hint_left.pack(side="left", pady=4)
 
         self.footer_settings_btn = tk.Label(
             editor_footer,
@@ -2088,7 +2547,7 @@ class QuickNoteApp:
         self.footer_settings_btn.bind("<Leave>", lambda _event: self._set_footer_btn_hover(self.footer_settings_btn, False))
 
         # 右侧快捷键提示
-        tk.Label(
+        self.footer_hint_right = tk.Label(
             editor_footer,
             text="Ctrl+,",
             bg=NOTE_FOOTER_BG,
@@ -2098,10 +2557,46 @@ class QuickNoteApp:
             pady=2,
             anchor="e",
             font=("Microsoft YaHei UI", 8),
-        ).pack(side="right", pady=4)
+        )
+        self.footer_hint_right.pack(side="right", pady=4)
+
+        self.clear_undo_label = tk.Label(
+            editor_footer,
+            text="撤销",
+            bg=NOTE_FOOTER_BG,
+            fg=NOTE_ACCENT,
+            bd=0,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            takefocus=True,
+            font=("Microsoft YaHei UI", 8, "bold"),
+        )
+        self.clear_undo_label.bind("<Button-1>", lambda _event: self._undo_clear_note())
+        self.clear_undo_label.bind("<Return>", lambda _event: self._undo_clear_note())
+        self.clear_undo_label.bind("<space>", lambda _event: self._undo_clear_note())
+
+        for widget, command in (
+            (self.hide_button, self.hide_and_save),
+            (self.settings_button, self._show_settings_dialog),
+            (self.footer_save_btn, self.save_note),
+            (self.footer_clear_btn, self._clear_note),
+            (self.footer_hide_btn, self.hide_and_save),
+            (self.footer_settings_btn, self._show_settings_dialog),
+        ):
+            widget.configure(takefocus=True)
+            widget.bind("<Return>", lambda _event, action=command: action())
+            widget.bind("<space>", lambda _event, action=command: action())
+
+        # Repack after every footer child exists so the editor takes only the remaining height.
+        self.text.pack_forget()
+        editor_footer.pack_forget()
+        editor_footer.pack(side="bottom", fill="x", padx=14, pady=(4, 8))
+        self.text.pack(side="top", fill="both", expand=True, padx=14, pady=(2, 0))
 
         self._update_page_buttons()
         self._update_window_size_label()
+        self._update_footer_density()
         self.root.bind("<Configure>", self._on_root_configure, add="+")
 
         # --- 右下角拉伸手柄(暖色) ---
@@ -2126,8 +2621,11 @@ class QuickNoteApp:
         self.root.bind("<Escape>", lambda _event: self.hide_and_save())
         self.root.bind("<FocusOut>", lambda _event: self.save_note())
         self.root.bind("<Control-l>", lambda _event: self._clear_note())
+        self.root.bind("<Control-z>", self._undo_clear_note, add="+")
+        self.root.bind("<F2>", lambda _event: self.rename_page(self.current_page))
         self.root.bind("<Control-k>", lambda _event: self._show_settings_dialog("api"))
         self.root.bind("<Control-comma>", lambda _event: self._show_settings_dialog())
+        self.root.bind("<Control-Alt-n>", lambda _event: self.toggle_window())
         self.root.bind("<Control-q>", lambda _event: self.quit_app())
         self.root.bind_all("<Alt-ButtonPress-1>", self._start_move)
         self.root.bind_all("<Alt-B1-Motion>", self._move_window)
@@ -2136,6 +2634,7 @@ class QuickNoteApp:
     def _on_root_configure(self, event):
         if event.widget == self.root:
             self._update_window_size_label()
+            self._update_footer_density()
 
     def _update_window_size_label(self):
         if self.editor_size_label is None:
@@ -2144,18 +2643,30 @@ class QuickNoteApp:
         height = max(self.root.winfo_height(), MIN_WINDOW_HEIGHT)
         self.editor_size_label.configure(text=f"{width}×{height}")
 
-    def _set_ocr_status(self, active=False):
+    def _update_footer_density(self):
+        if self.footer_hint_left is None or self.footer_hint_right is None:
+            return
+        if self.root.winfo_width() < 540:
+            self.footer_hint_left.pack_forget()
+            self.footer_hint_right.pack_forget()
+        else:
+            if not self.footer_hint_left.winfo_manager():
+                self.footer_hint_left.pack(side="left", pady=4)
+            if not self.footer_hint_right.winfo_manager():
+                self.footer_hint_right.pack(side="right", pady=4)
+
+    def _set_ocr_status(self, active=False, text=None):
         if self.ocr_status_label is None:
             return
         if active:
             self.ocr_status_label.configure(
-                text="● OCR…",
+                text=text or "处理中",
                 bg=NOTE_WARNING_SOFT,
                 fg=NOTE_WARNING,
             )
         else:
             self.ocr_status_label.configure(
-                text="● OCR",
+                text=text or "就绪",
                 bg=NOTE_OCR_SOFT,
                 fg=NOTE_OCR,
             )
@@ -2166,6 +2677,7 @@ class QuickNoteApp:
         widget.bind("<ButtonRelease-1>", lambda _event: self._save_state())
 
     def _ensure_api_setup(self):
+        self.api_setup_after_id = None
         if not is_deepseek_api_configured():
             self._show_settings_dialog("api", first_run=True)
 
@@ -2173,7 +2685,7 @@ class QuickNoteApp:
         self.root.deiconify()
         dialog = tk.Toplevel(self.root)
         dialog.title("配置翻译 API")
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
         dialog.attributes("-topmost", True)
         dialog.configure(bg=NOTE_HEADER_BG)
         dialog.transient(self.root)
@@ -2558,8 +3070,10 @@ class QuickNoteApp:
         block_browser_var = tk.BooleanVar(value=self.settings["block_browser_key"])
         double_click_var = tk.IntVar(value=int(self.settings["double_click_ms"]))
         double_click_value_var = tk.StringVar(value=f"{double_click_var.get()} ms")
+        side_response_var = tk.StringVar(value=self.settings["side_response_mode"])
+        image_fallback_var = tk.BooleanVar(value=self.settings["allow_image_fallback"])
         api_status_var = tk.StringVar(
-            value="DeepSeek 文本翻译使用当前 Windows 用户环境变量。"
+            value="已保存，尚未验证。" if key_var.get() else "未配置 API Key。"
         )
         status_var = tk.StringVar(value="")
 
@@ -2568,14 +3082,15 @@ class QuickNoteApp:
 
         api_page = make_page()
         pages["api"] = api_page
+        api_body = make_scrollable(api_page)
         row = make_section(
-            api_page,
+            api_body,
             0,
             "翻译 API",
             "配置 DeepSeek API Key。保存后立即用于 OCR 翻译。",
         )
         key_entry = tk.Entry(
-            api_page,
+            api_body,
             textvariable=key_var,
             show="*",
             relief="solid",
@@ -2590,11 +3105,11 @@ class QuickNoteApp:
         def update_key_visibility():
             key_entry.configure(show="" if show_key_var.get() else "*")
 
-        show_key = make_check(api_page, "显示 API Key", show_key_var, update_key_visibility)
+        show_key = make_check(api_body, "显示 API Key", show_key_var, update_key_visibility)
         show_key.grid(row=row + 1, column=0, sticky="w", pady=(10, 0))
 
         api_status = tk.Label(
-            api_page,
+            api_body,
             textvariable=api_status_var,
             bg=NOTE_SETTINGS_PANEL_BG,
             fg=NOTE_MUTED_TEXT,
@@ -2604,14 +3119,82 @@ class QuickNoteApp:
         api_status.grid(row=row + 2, column=0, sticky="ew", pady=(12, 0))
 
         def clear_api_key():
+            if not key_var.get() and not get_user_environment_value("DEEPSEEK_API_KEY"):
+                api_status_var.set("当前没有可清除的 API Key。")
+                return
+            confirmed = messagebox.askyesno(
+                "清除 API Key",
+                "清除后翻译将不可用，但本地便签不会删除。是否清除并保存？",
+                parent=dialog,
+            )
+            if not confirmed:
+                return
             key_var.set("")
-            api_status_var.set("保存后会清除当前用户的 DEEPSEEK_API_KEY。")
+            api_status_var.set("正在清除并保存 API Key。")
             api_status.configure(fg=NOTE_DANGER)
+            save_settings()
 
-        api_actions = tk.Frame(api_page, bg=NOTE_SETTINGS_PANEL_BG)
+        def test_api_connection():
+            key = normalize_api_key(key_var.get())
+            if not is_plausible_api_key(key):
+                api_status_var.set("请先输入完整的 API Key，再测试连接。")
+                api_status.configure(fg=NOTE_DANGER)
+                return
+            api_status_var.set("正在验证 API 连接…")
+            api_status.configure(fg=NOTE_WARNING_NOTE)
+
+            def run_test():
+                ok, message = verify_deepseek_api_key(key)
+
+                def update_result():
+                    if not dialog.winfo_exists():
+                        return
+                    api_status_var.set(message)
+                    api_status.configure(fg=NOTE_SUCCESS if ok else NOTE_DANGER)
+
+                dialog.after(0, update_result)
+
+            threading.Thread(
+                target=run_test,
+                daemon=True,
+                name="QuickSideNote-ApiVerify",
+            ).start()
+
+        api_actions = tk.Frame(api_body, bg=NOTE_SETTINGS_PANEL_BG)
         api_actions.grid(row=row + 3, column=0, sticky="ew", pady=(16, 0))
-        clear_api_button = make_button(api_actions, "清除 Key", clear_api_key)
+        test_api_button = make_button(api_actions, "测试连接", test_api_connection)
+        test_api_button.pack(side="left")
+        clear_api_button = make_button(api_actions, "清除并保存", clear_api_key)
+        clear_api_button.configure(bg=NOTE_DANGER_SOFT, fg=NOTE_DANGER)
         clear_api_button.pack(side="right")
+
+        privacy_card = make_setting_card(api_body, row + 4, pady=(18, 0))
+        tk.Label(
+            privacy_card,
+            text="图片兜底（可选）",
+            bg=NOTE_FIELD_BG,
+            fg=NOTE_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 9, "bold"),
+        ).grid(row=0, column=0, sticky="ew")
+        tk.Label(
+            privacy_card,
+            text=(
+                "默认关闭。本地 Windows OCR 失败时，开启后会把框选截图交给当前配置的 "
+                "Codex CLI 服务商处理。"
+            ),
+            bg=NOTE_FIELD_BG,
+            fg=NOTE_MUTED_TEXT,
+            anchor="w",
+            justify="left",
+            wraplength=430,
+            font=("Microsoft YaHei UI", 8),
+        ).grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        make_check(
+            privacy_card,
+            "我理解图片可能被发送到外部服务，允许图片兜底",
+            image_fallback_var,
+        ).grid(row=2, column=0, sticky="w", pady=(10, 0))
 
         input_page = make_page()
         pages["input"] = input_page
@@ -2674,13 +3257,13 @@ class QuickNoteApp:
         input_row = make_section(
             input_body,
             input_row,
-            "浏览器侧键拦截",
-            "拦截浏览器后退/前进键，避免 OCR 框选时页面跳转。",
+            "浏览器快捷键拦截",
+            "选中的鼠标侧键始终由 Quick Side Note 使用；此选项只控制浏览器虚拟后退/前进键。",
         )
         block_card = make_setting_card(input_body, input_row)
         tk.Label(
             block_card,
-            text="拦截浏览器后退/前进键",
+            text="同时拦截浏览器后退/前进快捷键",
             bg=NOTE_FIELD_BG,
             fg=NOTE_TEXT,
             anchor="w",
@@ -2691,9 +3274,9 @@ class QuickNoteApp:
         def update_block_toggle():
             enabled = bool(block_browser_var.get())
             block_status_var.set(
-                "已开启，避免 OCR 框选时页面跳转。"
+                "已开启，同时拦截浏览器虚拟后退/前进键。"
                 if enabled
-                else "已关闭，浏览器侧键会保持原行为。"
+                else "已关闭，不再处理浏览器虚拟后退/前进键。"
             )
             block_browser.configure(
                 text="ON" if enabled else "OFF",
@@ -2780,10 +3363,32 @@ class QuickNoteApp:
             pady=8,
         ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
 
+        input_row += 1
+        input_row = make_section(
+            input_body,
+            input_row,
+            "侧键响应模式",
+            "兼容模式保留双击显示/隐藏；即时框选会在第一次按下时直接进入框选。",
+        )
+        response_card = make_setting_card(input_body, input_row, pady=(0, 0))
+        make_radio(
+            response_card,
+            "兼容模式：单击框选，双击显示或隐藏便签",
+            side_response_var,
+            "compatibility",
+        ).grid(row=0, column=0, sticky="w")
+        make_radio(
+            response_card,
+            "即时框选：单击立即框选，窗口切换请使用托盘或 Ctrl+Alt+N",
+            side_response_var,
+            "immediate",
+        ).grid(row=1, column=0, sticky="w", pady=(8, 0))
+
         startup_page = make_page()
         pages["startup"] = startup_page
+        startup_body = make_scrollable(startup_page)
         startup_row = make_section(
-            startup_page,
+            startup_body,
             0,
             "开机启动",
             "保存时写入当前用户启动项，不需要管理员权限。",
@@ -2791,7 +3396,7 @@ class QuickNoteApp:
 
         startup_status_var = tk.StringVar(value="")
         startup_status = tk.Label(
-            startup_page,
+            startup_body,
             textvariable=startup_status_var,
             bg=NOTE_SETTINGS_PANEL_BG,
             fg=NOTE_MUTED_TEXT,
@@ -2811,7 +3416,7 @@ class QuickNoteApp:
                 startup_status.configure(fg=NOTE_MUTED_TEXT)
 
         startup_check = make_check(
-            startup_page,
+            startup_body,
             "登录 Windows 后自动启动 Quick Side Note",
             startup_var,
             update_startup_status,
@@ -2822,9 +3427,10 @@ class QuickNoteApp:
 
         about_page = make_page()
         pages["about"] = about_page
-        about_row = make_section(about_page, 0, f"Quick Side Note v{APP_VERSION}")
+        about_body = make_scrollable(about_page)
+        about_row = make_section(about_body, 0, f"Quick Side Note v{APP_VERSION}")
         tk.Label(
-            about_page,
+            about_body,
             text="轻量侧键便签工具：本地 OCR 识别屏幕文字，并调用 DeepSeek 完成翻译。",
             bg=NOTE_SETTINGS_PANEL_BG,
             fg=NOTE_TEXT,
@@ -2834,7 +3440,7 @@ class QuickNoteApp:
             font=("Microsoft YaHei UI", 9),
         ).grid(row=about_row, column=0, sticky="ew", pady=(0, 10))
         tk.Label(
-            about_page,
+            about_body,
             text=f"数据目录：{NOTE_DIR}",
             bg=NOTE_SETTINGS_PANEL_BG,
             fg=NOTE_MUTED_TEXT,
@@ -2844,7 +3450,7 @@ class QuickNoteApp:
             font=("Microsoft YaHei UI", 8),
         ).grid(row=about_row + 1, column=0, sticky="ew", pady=(0, 6))
         tk.Label(
-            about_page,
+            about_body,
             text=f"日志文件：{LOG_FILE}",
             bg=NOTE_SETTINGS_PANEL_BG,
             fg=NOTE_MUTED_TEXT,
@@ -2860,7 +3466,13 @@ class QuickNoteApp:
             "startup": ("开机启动", "开机启动", "控制登录 Windows 后是否自动启动 Quick Side Note。"),
             "about": ("关于", "关于此应用", "查看版本、数据目录和日志位置。"),
         }
+        section_keys = tuple(section_meta)
         active_section_var = tk.StringVar(value="")
+
+        def focus_nav(target, offset):
+            index = section_keys.index(target)
+            nav_items[section_keys[(index + offset) % len(section_keys)]].focus_set()
+            return "break"
 
         def apply_nav_style(active_key):
             for key, widget in nav_items.items():
@@ -2897,10 +3509,15 @@ class QuickNoteApp:
                 padx=14,
                 pady=9,
                 cursor="hand2",
+                takefocus=True,
                 font=("Microsoft YaHei UI", 9),
             )
             item.grid(row=index, column=0, sticky="ew", padx=8, pady=2)
             item.bind("<Button-1>", lambda _event, target=key: switch_section(target))
+            item.bind("<Return>", lambda _event, target=key: switch_section(target))
+            item.bind("<space>", lambda _event, target=key: switch_section(target))
+            item.bind("<Up>", lambda _event, target=key: focus_nav(target, -1))
+            item.bind("<Down>", lambda _event, target=key: focus_nav(target, 1))
             item.bind(
                 "<Enter>",
                 lambda _event, target=key, widget=item: widget.configure(
@@ -2960,6 +3577,8 @@ class QuickNoteApp:
                     "side_button": side_button_var.get(),
                     "block_browser_key": block_browser_var.get(),
                     "double_click_ms": double_click_var.get(),
+                    "side_response_mode": side_response_var.get(),
+                    "allow_image_fallback": image_fallback_var.get(),
                 }
             )
             self._save_state()
@@ -2977,13 +3596,23 @@ class QuickNoteApp:
         dialog.protocol("WM_DELETE_WINDOW", close_dialog)
         dialog.bind("<Escape>", lambda _event: close_dialog())
         dialog.update_idletasks()
-        dialog.minsize(dialog_min_width, dialog_min_height)
-        root_x = self.root.winfo_x()
-        root_y = self.root.winfo_y()
-        root_w = max(self.root.winfo_width(), WINDOW_WIDTH)
-        root_h = max(self.root.winfo_height(), WINDOW_HEIGHT)
-        x = root_x + max(0, (root_w - dialog_width) // 2)
-        y = root_y + max(0, (root_h - dialog_height) // 2)
+        pointer_x = self.root.winfo_pointerx()
+        pointer_y = self.root.winfo_pointery()
+        work_area = monitor_work_area_for_point(
+            pointer_x,
+            pointer_y,
+            self.root.winfo_screenwidth(),
+            self.root.winfo_screenheight(),
+        )
+        dialog_width, dialog_height, x, y = clamp_dialog_to_work_area(
+            dialog_width,
+            dialog_height,
+            work_area,
+        )
+        dialog.minsize(
+            min(dialog_min_width, dialog_width),
+            min(dialog_min_height, dialog_height),
+        )
         dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         dialog.grab_set()
         switch_section(section_key)
@@ -3004,6 +3633,7 @@ class QuickNoteApp:
                 anchor="center",
                 font=PAGE_LABEL_FONT,
                 cursor="hand2",
+                takefocus=True,
             )
             page_button.pack(side="left", padx=(0, 4), pady=(0, 4))
             page_button.bind(
@@ -3012,6 +3642,21 @@ class QuickNoteApp:
             page_button.bind(
                 "<Double-Button-1>",
                 lambda _event, target=page_id: self.rename_page(target),
+            )
+            page_button.bind(
+                "<Return>", lambda _event, target=page_id: self.switch_page(target)
+            )
+            page_button.bind(
+                "<space>", lambda _event, target=page_id: self.switch_page(target)
+            )
+            page_button.bind(
+                "<F2>", lambda _event, target=page_id: self.rename_page(target)
+            )
+            page_button.bind(
+                "<Left>", lambda _event, target=page_id: self._focus_page_tab(target, -1)
+            )
+            page_button.bind(
+                "<Right>", lambda _event, target=page_id: self._focus_page_tab(target, 1)
             )
             page_button.bind(
                 "<Enter>",
@@ -3032,15 +3677,69 @@ class QuickNoteApp:
             anchor="center",
             font=PAGE_ADD_FONT,
             cursor="hand2",
+            takefocus=True,
             bg=NOTE_INACTIVE_PAGE_BG,
             fg=NOTE_INACTIVE_PAGE_FG,
         )
         add_button.pack(side="left", padx=(4, 0), pady=(0, 4))
         add_button.bind("<Button-1>", lambda _event: self.create_page())
+        add_button.bind("<Return>", lambda _event: self.create_page())
+        add_button.bind("<space>", lambda _event: self.create_page())
         add_button.bind("<Enter>", lambda _event: self._set_add_hover(True))
         add_button.bind("<Leave>", lambda _event: self._set_add_hover(False))
         self.add_page_button = add_button
         self._update_page_buttons()
+        self.root.after_idle(self._sync_page_tab_region)
+
+    def _sync_page_tab_region(self, _event=None):
+        if not getattr(self, "page_tab_canvas", None):
+            return
+        bbox = self.page_tab_canvas.bbox("all")
+        if bbox:
+            self.page_tab_canvas.configure(scrollregion=bbox)
+
+    def _focus_page_tab(self, page, offset):
+        page_ids = [item["id"] for item in self.note_pages]
+        try:
+            index = page_ids.index(page)
+        except ValueError:
+            return "break"
+        target = page_ids[(index + offset) % len(page_ids)]
+        button = self.page_buttons.get(target)
+        if button is not None:
+            button.focus_set()
+            self.page_tab_canvas.xview_moveto(0)
+        return "break"
+
+    def _show_page_overflow_menu(self):
+        menu = tk.Menu(
+            self.root,
+            tearoff=False,
+            bg=NOTE_PAPER_BG,
+            fg=NOTE_TEXT,
+            activebackground=NOTE_ACCENT_SOFT,
+            activeforeground=NOTE_ACCENT_ACTIVE,
+        )
+        for page in self.note_pages:
+            marker = "* " if page["id"] == self.current_page else ""
+            menu.add_command(
+                label=f"{marker}{page['name']}",
+                command=lambda target=page["id"]: self.switch_page(target),
+            )
+        menu.add_separator()
+        menu.add_command(label="新建标签", command=self.create_page)
+        menu.add_command(
+            label="重命名当前标签",
+            command=lambda: self.rename_page(self.current_page),
+        )
+        try:
+            menu.tk_popup(
+                self.page_overflow_button.winfo_rootx(),
+                self.page_overflow_button.winfo_rooty()
+                + self.page_overflow_button.winfo_height(),
+            )
+        finally:
+            menu.grab_release()
 
     def switch_page(self, page):
         page = normalized_note_page(page, self.note_pages)
@@ -3160,14 +3859,14 @@ class QuickNoteApp:
         btn.configure(fg=fg)
 
     def _poll_events(self):
+        if getattr(self, "closing", False):
+            return
         self.hook_check_ticks += 1
         if self.hook_check_ticks >= 20:
             self.hook_check_ticks = 0
             if not self.mouse_hook.is_alive():
-                log("mouse hook stopped, restarting")
                 self.mouse_hook.start()
             if not self.browser_key_hook.is_alive():
-                log("keyboard hook stopped, restarting")
                 self.browser_key_hook.start()
 
         while True:
@@ -3181,12 +3880,19 @@ class QuickNoteApp:
                 if now - self.last_toggle_time >= EVENT_DEBOUNCE_SECONDS:
                     self.last_toggle_time = now
                     self._handle_side_click(event[1], event[2])
+            elif event[0] == "cancel_task":
+                self._cancel_active_task()
             elif event[0] == "tray_toggle":
                 self.toggle_from_tray()
             elif event[0] == "tray_menu" and self.tray_icon is not None:
                 self.tray_icon._queue_menu()
+            elif event[0] == "translation_done":
+                self._finish_ocr_translation(*event[1:])
+            elif event[0] == "translation_progress":
+                self._update_translation_progress(*event[1:])
 
-        self.root.after(60, self._poll_events)
+        if not self.closing:
+            self.root.after(60, self._poll_events)
 
     def _handle_side_click(self, pointer_x, pointer_y):
         if self.ocr_active:
@@ -3197,15 +3903,29 @@ class QuickNoteApp:
                 log("side click cancels OCR selection")
                 self.capture_overlay.cancel()
             else:
-                log("side click ignored while OCR is active")
+                self._cancel_translation_task()
+            return
+
+        if self.settings["side_response_mode"] == "immediate":
+            self.start_ocr_selection()
             return
 
         if self.pending_single_click is not None:
             self.root.after_cancel(self.pending_single_click)
             self.pending_single_click = None
+            hide_hud = getattr(self, "_hide_task_hud", None)
+            if callable(hide_hud):
+                hide_hud()
             self.toggle_window(pointer_x, pointer_y)
             return
 
+        show_hud = getattr(self, "_show_task_hud", None)
+        if callable(show_hud):
+            show_hud(
+                "准备框选",
+                "再次按侧键可显示或隐藏便签。",
+                cancellable=False,
+            )
         self.pending_single_click = self.root.after(
             self.settings["double_click_ms"],
             lambda: self._run_single_click_ocr(pointer_x, pointer_y),
@@ -3226,8 +3946,10 @@ class QuickNoteApp:
 
     def show_window(self, pointer_x=None, pointer_y=None):
         self.visible = True
-        pointer_x = self.root.winfo_pointerx()
-        pointer_y = self.root.winfo_pointery()
+        if pointer_x is None:
+            pointer_x = self.root.winfo_pointerx()
+        if pointer_y is None:
+            pointer_y = self.root.winfo_pointery()
         if pointer_x is not None and pointer_y is not None:
             self._move_near_pointer(pointer_x, pointer_y)
         self.root.deiconify()
@@ -3260,9 +3982,20 @@ class QuickNoteApp:
 
     def quit_app(self):
         log("quit app")
+        self.closing = True
         if self.pending_single_click is not None:
             self.root.after_cancel(self.pending_single_click)
             self.pending_single_click = None
+        self._cancel_autosave()
+        if self.api_setup_after_id is not None:
+            try:
+                self.root.after_cancel(self.api_setup_after_id)
+            except tk.TclError:
+                pass
+            self.api_setup_after_id = None
+        self._cancel_translation_task(show_message=False)
+        if self.task_hud is not None:
+            self.task_hud.destroy()
         try:
             self.save_note()
         except Exception as exc:
@@ -3278,72 +4011,257 @@ class QuickNoteApp:
         self._release_topmost()
         self.root.withdraw()
 
+    def _set_autosave_status(self, text, color=None):
+        if getattr(self, "autosave_label", None) is None:
+            return
+        self.autosave_label.configure(
+            text=text,
+            fg=color if color is not None else NOTE_AUTOSAVE_FG,
+        )
+
+    def _cancel_autosave(self):
+        if getattr(self, "autosave_after_id", None) is None:
+            return
+        try:
+            self.root.after_cancel(self.autosave_after_id)
+        except tk.TclError:
+            pass
+        self.autosave_after_id = None
+
+    def _on_note_modified(self, _event=None):
+        try:
+            if not self.text.edit_modified():
+                return
+            self.text.edit_modified(False)
+        except tk.TclError:
+            return
+        if self.clear_undo_state and not self._is_placeholder_active():
+            self._dismiss_clear_undo()
+        if self._is_placeholder_active() or getattr(self, "closing", False):
+            return
+        self._set_autosave_status("未保存", NOTE_WARNING_NOTE)
+        self._cancel_autosave()
+        self.autosave_after_id = self.root.after(
+            AUTOSAVE_DELAY_MS,
+            self._autosave_current_note,
+        )
+
+    def _autosave_current_note(self):
+        self.autosave_after_id = None
+        if getattr(self, "closing", False):
+            return
+        self._set_autosave_status("保存中", NOTE_MUTED_TEXT)
+        try:
+            self.save_note()
+        except OSError:
+            log("autosave failed")
+
     def save_note(self):
+        self._cancel_autosave()
         content = "" if self._is_placeholder_active() else self.text.get("1.0", "end-1c")
-        note_file_for_page(self.current_page).write_text(content, encoding="utf-8")
-        self._save_state()
+        if self.clear_undo_state and self.clear_undo_state["page"] == self.current_page:
+            self._dismiss_clear_undo()
+        try:
+            atomic_write_text(note_file_for_page(self.current_page), content)
+            self._save_state()
+        except OSError:
+            self._set_autosave_status("保存失败", NOTE_DANGER)
+            raise
+        self._set_autosave_status("已保存", NOTE_SUCCESS)
 
     def start_ocr_selection(self):
         if self.ocr_active:
             log("OCR selection already active")
             return
 
+        self.task_restore_visible = self.visible and self.root.state() != "withdrawn"
         self.ocr_active = True
-        update_ocr_status_if_available(self, True)
+        self._set_ocr_status(True, "准备框选")
+        self._show_task_hud(
+            "准备框选",
+            "拖动选择英文区域；再次按侧键或 Esc 可取消。",
+        )
         self.hide_and_save()
         overlay = ScreenCaptureOverlay(self.root, self._on_capture_complete)
         self.capture_overlay = overlay
         try:
             overlay.start()
+            self._set_ocr_status(True, "框选中")
+            self._show_task_hud(
+                "框选英文区域",
+                "拖动选择屏幕文字；再次按侧键或 Esc 可取消。",
+            )
         except Exception as exc:
             self.ocr_active = False
             update_ocr_status_if_available(self, False)
             self.capture_overlay = None
             log(f"OCR overlay failed: {exc}")
-            self._show_short_message(f"框选启动失败：{exc}")
+            self._show_task_failure(f"框选启动失败：{exc}")
 
     def _on_capture_complete(self, image_path, error):
         self.capture_overlay = None
+        if getattr(self, "closing", False):
+            if image_path:
+                Path(image_path).unlink(missing_ok=True)
+            return
         if error:
             self.ocr_active = False
             update_ocr_status_if_available(self, False)
-            self._show_short_message(error)
             log(error)
+            if error == "已取消":
+                show_cancelled = getattr(self, "_show_task_cancelled", None)
+                if callable(show_cancelled):
+                    show_cancelled("已取消框选")
+                else:
+                    self._show_short_message("已取消框选")
+            else:
+                show_failure = getattr(self, "_show_task_failure", None)
+                if callable(show_failure):
+                    show_failure(error)
+                else:
+                    self._show_short_message(error)
             return
 
+        self.next_translation_task_id += 1
+        task = TranslationTask(self.next_translation_task_id, Path(image_path))
+        self.translation_task = task
+        self._set_ocr_status(True, "正在识别")
+        self._show_task_hud("正在识别", "正在读取框选内容…")
+        task.timeout_after_id = self.root.after(
+            TRANSLATION_TASK_TIMEOUT_SECONDS * 1000,
+            lambda task_id=task.task_id: self._expire_translation_task(task_id),
+        )
         thread = threading.Thread(
             target=self._translate_capture_worker,
-            args=(image_path,),
+            args=(task,),
             daemon=True,
+            name=f"QuickSideNote-Translate-{task.task_id}",
         )
         thread.start()
 
-    def _translate_capture_worker(self, image_path):
+    def _translate_capture_worker(self, task):
+        result = None
+        error = None
         try:
-            result = self.backend.translate_image(image_path)
-            error = None
+            if not task.cancelled.is_set():
+                if isinstance(self.backend, FastTranslationBackend):
+                    result = self.backend.translate_image(
+                        task.image_path,
+                        progress_callback=lambda stage: self.events.put(
+                            ("translation_progress", task.task_id, stage)
+                        ),
+                    )
+                else:
+                    result = self.backend.translate_image(task.image_path)
         except Exception as exc:
-            result = None
             error = str(exc)
-            log(f"ocr translate failed: {error}")
+            log(f"ocr translate failed: {type(exc).__name__}")
         finally:
             try:
-                Path(image_path).unlink(missing_ok=True)
+                task.image_path.unlink(missing_ok=True)
             except OSError as exc:
-                log(f"failed to delete temp capture: {exc}")
+                log(f"failed to delete temp capture: {type(exc).__name__}")
 
-        self.root.after(0, lambda: self._finish_ocr_translation(result, error))
+        self.events.put(
+            ("translation_done", task.task_id, result, error, task.cancelled.is_set())
+        )
 
-    def _finish_ocr_translation(self, result, error):
+    def _update_translation_progress(self, task_id, stage):
+        task = self.translation_task
+        if task is None or task.task_id != task_id:
+            return
+        if stage == "translating":
+            self._set_ocr_status(True, "正在翻译")
+            self._show_task_hud("正在翻译", "正在生成简明中文释义…")
+        else:
+            self._set_ocr_status(True, "正在识别")
+            self._show_task_hud("正在识别", "正在读取框选内容…")
+
+    def _finish_ocr_translation(self, task_id, result, error, cancelled=False):
+        task = self.translation_task
+        if task is None or task.task_id != task_id:
+            log("discarded stale translation result")
+            return
+        if task.timeout_after_id is not None:
+            self.root.after_cancel(task.timeout_after_id)
+        self.translation_task = None
         self.ocr_active = False
         update_ocr_status_if_available(self, False)
+        if cancelled:
+            self._show_task_cancelled("已取消翻译")
+            return
         if error:
-            self._show_short_message(error)
+            self._show_task_failure(error)
             return
 
         self.append_translation_result(result)
         self.note_store.append_vocabulary(result)
         self.show_window()
+        self._show_task_hud("已完成", "识别结果已写入当前便签。", cancellable=False)
+        self.root.after(900, self._hide_task_hud)
+
+    def _cancel_translation_task(self, show_message=True):
+        task = self.translation_task
+        if task is None:
+            return False
+        task.cancelled.set()
+        if task.timeout_after_id is not None:
+            try:
+                self.root.after_cancel(task.timeout_after_id)
+            except tk.TclError:
+                pass
+        self.translation_task = None
+        self.ocr_active = False
+        update_ocr_status_if_available(self, False)
+        if show_message and not self.closing:
+            self._show_task_cancelled("已取消翻译")
+        log("translation task cancelled")
+        return True
+
+    def _expire_translation_task(self, task_id):
+        task = self.translation_task
+        if task is not None and task.task_id == task_id:
+            self._cancel_translation_task(show_message=False)
+            self._show_task_failure("翻译超时。请检查网络或 API 配置后重新框选。")
+
+    def _cancel_active_task(self):
+        if self.capture_overlay is not None:
+            self.capture_overlay.cancel()
+            return True
+        return self._cancel_translation_task()
+
+    def _show_task_hud(self, title, detail, cancellable=True):
+        if self.task_hud is None:
+            self.task_hud = TaskProgressHud(self.root, self._cancel_active_task)
+        self.task_hud.show_status(title, detail, cancellable=cancellable)
+
+    def _hide_task_hud(self):
+        if self.task_hud is not None:
+            self.task_hud.hide()
+
+    def _show_task_cancelled(self, message):
+        self._restore_window_after_task()
+        self._show_task_hud("任务已取消", message, cancellable=False)
+        self.root.after(1000, self._hide_task_hud)
+
+    def _show_task_failure(self, message):
+        self._restore_window_after_task()
+        if self.task_hud is None:
+            self.task_hud = TaskProgressHud(self.root, self._cancel_active_task)
+        self.task_hud.show_failure(
+            message,
+            self.start_ocr_selection,
+            self._return_to_note_after_task,
+        )
+
+    def _restore_window_after_task(self):
+        if self.task_restore_visible:
+            self.show_window_from_tray()
+        self.task_restore_visible = False
+
+    def _return_to_note_after_task(self):
+        self._hide_task_hud()
+        self.show_window_from_tray()
 
     def append_translation_result(self, result):
         self._remove_placeholder()
@@ -3381,13 +4299,23 @@ class QuickNoteApp:
         self.text.tag_remove("placeholder", "1.0", "end")
         note_file = note_file_for_page(self.current_page)
         if note_file.exists():
-            content = note_file.read_text(encoding="utf-8")
+            try:
+                content, recovered = read_text_with_backup(note_file)
+            except (OSError, UnicodeDecodeError):
+                log("note could not be read")
+                self._show_short_message("便签无法读取，原文件已保留")
+                self._insert_placeholder()
+                return
+            if recovered:
+                log("note recovered from backup")
             if content:
                 self.text.insert("1.0", content)
                 self._apply_translation_tags()
+                self.text.edit_modified(False)
                 return
 
         self._insert_placeholder()
+        self.text.edit_modified(False)
 
     def _apply_translation_tags(self):
         """扫描已加载的笔记文本,为 原文：/译文： 行回填 src/dst tag。"""
@@ -3416,7 +4344,7 @@ class QuickNoteApp:
         self.text.insert("1.0", PLACEHOLDER_TEXT)
         self.text.tag_add("placeholder", "1.0", "end")
         self.text.tag_config("placeholder", foreground=NOTE_MUTED_TEXT)
-        self.text.bind("<FocusIn>", self._remove_placeholder, add="+")
+        self.text.bind("<KeyPress>", self._remove_placeholder, add="+")
 
     def _is_placeholder_active(self):
         return bool(self.text.tag_ranges("placeholder")) and (
@@ -3429,10 +4357,67 @@ class QuickNoteApp:
             self.text.tag_remove("placeholder", "1.0", "end")
 
     def _clear_note(self):
+        if self._is_placeholder_active() or not self.text.get("1.0", "end-1c").strip():
+            self._show_short_message("当前页已经是空白。")
+            return "break"
+
+        self._dismiss_clear_undo()
+        selection = None
+        try:
+            selection = (self.text.index("sel.first"), self.text.index("sel.last"))
+        except tk.TclError:
+            pass
+        self.clear_undo_state = {
+            "page": self.current_page,
+            "content": self.text.get("1.0", "end-1c"),
+            "insert": self.text.index("insert"),
+            "selection": selection,
+        }
+        self._cancel_autosave()
         self.text.delete("1.0", "end")
-        self.save_note()
         self._insert_placeholder()
+        if self.clear_undo_label is not None:
+            self.clear_undo_label.pack(side="left", padx=(4, 0), pady=4)
+        self._set_autosave_status("已清空，可撤销", NOTE_WARNING_NOTE)
+        self.clear_undo_after_id = self.root.after(
+            CLEAR_UNDO_WINDOW_MS,
+            self._commit_clear_note,
+        )
+        return "break"
+
+    def _undo_clear_note(self, _event=None):
+        state = self.clear_undo_state
+        if state is None or state["page"] != self.current_page:
+            return None
+        self._dismiss_clear_undo()
+        self.text.delete("1.0", "end")
+        self.text.tag_remove("placeholder", "1.0", "end")
+        self.text.insert("1.0", state["content"])
+        self._apply_translation_tags()
+        self.text.mark_set("insert", state["insert"])
+        if state["selection"]:
+            self.text.tag_add("sel", *state["selection"])
         self.text.focus_set()
+        self._set_autosave_status("已恢复", NOTE_SUCCESS)
+        self._on_note_modified()
+        return "break"
+
+    def _commit_clear_note(self):
+        state = self.clear_undo_state
+        self._dismiss_clear_undo()
+        if state is not None and state["page"] == self.current_page:
+            self.save_note()
+
+    def _dismiss_clear_undo(self):
+        if self.clear_undo_after_id is not None:
+            try:
+                self.root.after_cancel(self.clear_undo_after_id)
+            except tk.TclError:
+                pass
+        self.clear_undo_after_id = None
+        self.clear_undo_state = None
+        if self.clear_undo_label is not None:
+            self.clear_undo_label.pack_forget()
 
     def _start_move(self, event):
         self.drag_start_x = event.x_root - self.root.winfo_x()
@@ -3472,12 +4457,12 @@ class QuickNoteApp:
         self.root.update_idletasks()
         width, height = self._current_window_size()
 
-        screen_x = 0
-        screen_y = 0
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        right = screen_x + screen_width
-        bottom = screen_y + screen_height
+        screen_x, screen_y, right, bottom = monitor_work_area_for_point(
+            pointer_x,
+            pointer_y,
+            fallback_width=self.root.winfo_screenwidth(),
+            fallback_height=self.root.winfo_screenheight(),
+        )
 
         x = pointer_x + POPUP_OFFSET
         y = pointer_y + POPUP_OFFSET
@@ -3523,7 +4508,8 @@ class QuickNoteApp:
         return normalized_note_page(state.get("active_page", 1), self.note_pages)
 
     def _save_state(self):
-        STATE_FILE.write_text(
+        atomic_write_text(
+            STATE_FILE,
             json.dumps(
                 {
                     "geometry": self._fixed_geometry(),
@@ -3534,7 +4520,6 @@ class QuickNoteApp:
                 ensure_ascii=False,
                 indent=2,
             ),
-            encoding="utf-8",
         )
 
     def _fixed_geometry(self):

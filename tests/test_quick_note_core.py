@@ -1,5 +1,7 @@
 import json
+import queue
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,6 +66,60 @@ class VocabularyStoreTests(unittest.TestCase):
             self.assertIn("created_at", row)
 
 
+class SafeStorageTests(unittest.TestCase):
+    def test_atomic_write_keeps_backup_and_replaces_content(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "note.txt"
+            path.write_text("old", encoding="utf-8")
+
+            quick_note.atomic_write_text(path, "new")
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "new")
+            self.assertEqual(
+                quick_note.backup_file_for(path).read_text(encoding="utf-8"),
+                "old",
+            )
+
+    def test_atomic_write_preserves_existing_file_when_backup_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "note.txt"
+            path.write_text("old", encoding="utf-8")
+
+            with patch("quick_note.shutil.copy2", side_effect=OSError("disk error")):
+                with self.assertRaises(OSError):
+                    quick_note.atomic_write_text(path, "new")
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "old")
+
+    def test_state_reader_uses_backup_after_corruption(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            backup_path = quick_note.backup_file_for(state_path)
+            state_path.write_text("{broken", encoding="utf-8")
+            backup_path.write_text('{"active_page": 4}', encoding="utf-8")
+
+            with patch.object(quick_note, "STATE_FILE", state_path):
+                self.assertEqual(quick_note.read_state_data(), {"active_page": 4})
+
+    def test_read_text_supports_legacy_gb18030_note(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "note.txt"
+            path.write_bytes("旧版便签".encode("gb18030"))
+
+            self.assertEqual(quick_note.read_text_with_fallback(path), "旧版便签")
+
+    def test_discover_note_pages_keeps_existing_added_pages(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            note_dir = Path(temp_dir)
+            (note_dir / "note-4.txt").write_text("four", encoding="utf-8")
+            (note_dir / "note-8.txt").write_text("eight", encoding="utf-8")
+
+            with patch.object(quick_note, "NOTE_DIR", note_dir):
+                page_ids = [page["id"] for page in quick_note.discover_note_pages()]
+
+            self.assertEqual(page_ids, [1, 2, 3, 4, 8])
+
+
 class ApiConfigurationTests(unittest.TestCase):
     def test_plausible_api_key_rejects_empty_or_short_values(self):
         self.assertFalse(quick_note.is_plausible_api_key(""))
@@ -89,6 +145,8 @@ class AppSettingsTests(unittest.TestCase):
         self.assertEqual(settings["side_button"], "xbutton1")
         self.assertTrue(settings["block_browser_key"])
         self.assertEqual(settings["double_click_ms"], 300)
+        self.assertEqual(settings["side_response_mode"], "compatibility")
+        self.assertFalse(settings["allow_image_fallback"])
 
     def test_normalize_settings_clamps_double_click_interval(self):
         low = quick_note.normalize_app_settings({"double_click_ms": 1})
@@ -96,6 +154,16 @@ class AppSettingsTests(unittest.TestCase):
 
         self.assertEqual(low["double_click_ms"], quick_note.MIN_DOUBLE_CLICK_MS)
         self.assertEqual(high["double_click_ms"], quick_note.MAX_DOUBLE_CLICK_MS)
+
+    def test_normalize_settings_rejects_unknown_side_response_mode(self):
+        settings = quick_note.normalize_app_settings({"side_response_mode": "fast"})
+
+        self.assertEqual(settings["side_response_mode"], "compatibility")
+
+    def test_normalize_settings_supports_immediate_side_response_mode(self):
+        settings = quick_note.normalize_app_settings({"side_response_mode": "immediate"})
+
+        self.assertEqual(settings["side_response_mode"], "immediate")
 
     def test_side_button_value_supports_second_side_button(self):
         settings = quick_note.normalize_app_settings({"side_button": "xbutton2"})
@@ -222,7 +290,7 @@ class WindowGeometryTests(unittest.TestCase):
     def test_normalize_clamps_to_minimum_size(self):
         geometry = quick_note.normalize_window_geometry("120x90-20+30")
 
-        self.assertEqual(geometry, "300x200-20+30")
+        self.assertEqual(geometry, "380x300-20+30")
 
     def test_normalize_uses_default_for_invalid_geometry(self):
         geometry = quick_note.normalize_window_geometry("bad")
@@ -233,6 +301,24 @@ class WindowGeometryTests(unittest.TestCase):
         size = quick_note.parse_window_size("560x340+10+20")
 
         self.assertEqual(size, (560, 340))
+
+    def test_dialog_geometry_respects_work_area_fraction(self):
+        geometry = quick_note.clamp_dialog_to_work_area(
+            820,
+            640,
+            (0, 0, 800, 600),
+        )
+
+        self.assertEqual(geometry, (720, 540, 40, 30))
+
+    def test_dialog_geometry_keeps_small_work_area_onscreen(self):
+        geometry = quick_note.clamp_dialog_to_work_area(
+            820,
+            640,
+            (-1280, 0, 0, 720),
+        )
+
+        self.assertEqual(geometry, (820, 640, -1050, 40))
 
 
 class CodexCliBackendTests(unittest.TestCase):
@@ -353,6 +439,28 @@ class FastTranslationBackendTests(unittest.TestCase):
         self.assertEqual(backend.text_backend.source_text, "margin")
         self.assertFalse(fallback.called)
 
+    def test_fast_backend_logs_only_ocr_text_length(self):
+        class FakeOcr:
+            def recognize_text(self, _image_path):
+                return "confidential phrase"
+
+        class FakeText:
+            def translate_text(self, source_text):
+                return quick_note.TranslationResult(source_text, "机密短语")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "quick_note.log"
+            backend = quick_note.FastTranslationBackend(None)
+            backend.ocr_backend = FakeOcr()
+            backend.text_backend = FakeText()
+
+            with patch.object(quick_note, "LOG_FILE", log_path):
+                backend.translate_image("capture.png")
+
+            log_text = log_path.read_text(encoding="utf-8")
+            self.assertIn("text_length=19", log_text)
+            self.assertNotIn("confidential phrase", log_text)
+
     def test_fast_backend_falls_back_when_fast_path_fails(self):
         class BrokenOcr:
             def recognize_text(self, _image_path):
@@ -371,7 +479,7 @@ class FastTranslationBackendTests(unittest.TestCase):
                 return quick_note.TranslationResult("obscure", "模糊的")
 
         fallback = FakeFallback()
-        backend = quick_note.FastTranslationBackend(fallback)
+        backend = quick_note.FastTranslationBackend(fallback, image_fallback_enabled=True)
         backend.ocr_backend = BrokenOcr()
         backend.text_backend = FakeText()
 
@@ -381,6 +489,22 @@ class FastTranslationBackendTests(unittest.TestCase):
         self.assertEqual(result.source_text, "obscure")
         self.assertEqual(result.translation, "模糊的")
         self.assertEqual(fallback.image_path, "capture.png")
+
+    def test_fast_backend_keeps_image_fallback_disabled_by_default(self):
+        class BrokenOcr:
+            def recognize_text(self, _image_path):
+                raise RuntimeError("ocr failed")
+
+        class FakeFallback:
+            def translate_image(self, _image_path):
+                raise AssertionError("image fallback must not run")
+
+        backend = quick_note.FastTranslationBackend(FakeFallback())
+        backend.ocr_backend = BrokenOcr()
+
+        with patch("quick_note.log"):
+            with self.assertRaisesRegex(RuntimeError, "本地 OCR"):
+                backend.translate_image("capture.png")
 
     def test_fast_backend_does_not_fall_back_when_text_translation_fails(self):
         class FakeOcr:
@@ -490,6 +614,131 @@ class SideButtonStateTests(unittest.TestCase):
 
         self.assertEqual(app.pending_single_click, "scheduled")
         self.assertEqual(app.root.after_delay, 450)
+
+    def test_immediate_side_click_starts_ocr_without_double_click_wait(self):
+        app = SimpleNamespace(
+            ocr_active=False,
+            pending_single_click=None,
+            settings=quick_note.normalize_app_settings(
+                {"side_response_mode": "immediate"}
+            ),
+            started=False,
+        )
+
+        def start_ocr_selection():
+            app.started = True
+
+        app.start_ocr_selection = start_ocr_selection
+        quick_note.QuickNoteApp._handle_side_click(app, 10, 20)
+
+        self.assertTrue(app.started)
+        self.assertIsNone(app.pending_single_click)
+
+
+class TranslationTaskTests(unittest.TestCase):
+    def test_worker_only_enqueues_result(self):
+        class FakeBackend:
+            def translate_image(self, _image_path):
+                return quick_note.TranslationResult("margin", "页边距")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "capture.png"
+            image_path.write_bytes(b"image")
+            task = quick_note.TranslationTask(7, image_path)
+            app = SimpleNamespace(backend=FakeBackend(), events=queue.Queue())
+
+            quick_note.QuickNoteApp._translate_capture_worker(app, task)
+
+            event = app.events.get_nowait()
+            self.assertEqual(event[0], "translation_done")
+            self.assertEqual(event[1], 7)
+            self.assertEqual(event[2].translation, "页边距")
+            self.assertFalse(image_path.exists())
+
+    def test_cancelled_task_result_is_ignored(self):
+        current = quick_note.TranslationTask(2, Path("current.png"))
+        app = SimpleNamespace(
+            translation_task=current,
+            ocr_active=True,
+            _show_short_message=lambda _message: self.fail("stale result displayed"),
+        )
+
+        with patch("quick_note.log"):
+            quick_note.QuickNoteApp._finish_ocr_translation(
+                app,
+                1,
+                quick_note.TranslationResult("old", "旧结果"),
+                None,
+            )
+
+        self.assertIs(app.translation_task, current)
+        self.assertTrue(app.ocr_active)
+
+
+class HookLifecycleTests(unittest.TestCase):
+    def test_failed_hook_install_exits_without_message_loop(self):
+        fake_user32 = SimpleNamespace(
+            SetWindowsHookExW=lambda *_args: 0,
+            GetMessageW=lambda *_args: self.fail("message loop must not start"),
+        )
+        fake_kernel32 = SimpleNamespace(
+            GetCurrentThreadId=lambda: 42,
+            GetModuleHandleW=lambda _name: None,
+        )
+        hook = quick_note._WindowsHookBase(1, quick_note.ctypes.c_void_p(), "test")
+
+        with patch("quick_note.user32", fake_user32), patch("quick_note.kernel32", fake_kernel32), patch(
+            "quick_note.log"
+        ):
+            hook._run()
+
+        self.assertIsNone(hook.hook_id)
+        self.assertIsNone(hook.thread_id)
+        self.assertEqual(hook.failure_count, 1)
+        self.assertGreater(hook.next_retry_at, time.monotonic() - 1)
+
+
+class WindowsCompatibilityTests(unittest.TestCase):
+    def test_monitor_work_area_falls_back_to_primary_dimensions(self):
+        with patch("quick_note.user32", SimpleNamespace(MonitorFromPoint=lambda *_args: 0)):
+            area = quick_note.monitor_work_area_for_point(10, 20, 1920, 1080)
+
+        self.assertEqual(area, (0, 0, 1920, 1080))
+
+    def test_tray_right_click_queues_menu_on_main_event_loop(self):
+        events = queue.Queue()
+        tray = object.__new__(quick_note.WindowsTrayIcon)
+        tray.app = SimpleNamespace(events=events)
+        tray.taskbar_created_message = -1
+
+        result = tray._window_proc(
+            None,
+            quick_note.WM_TRAYICON,
+            quick_note.TRAY_ICON_ID,
+            quick_note.WM_RBUTTONUP,
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(events.get_nowait(), ("tray_menu",))
+
+
+class PackagingTests(unittest.TestCase):
+    def test_build_script_checks_native_exit_codes_and_exact_artifacts(self):
+        script = Path("scripts/build_installer.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("Assert-NativeSuccess \"PyInstaller\"", script)
+        self.assertIn("Assert-NativeSuccess \"Inno Setup\"", script)
+        self.assertIn("Assert-AppExecutableVersion", script)
+        self.assertIn("build-manifest.json", script)
+        self.assertIn("QuickSideNote_Setup_v$appVersion.exe", script)
+        self.assertIn("Compress-Archive", script)
+
+    def test_uninstaller_removes_only_the_app_startup_value(self):
+        installer = Path("installer/QuickSideNote.iss").read_text(encoding="utf-8")
+
+        self.assertIn("[Registry]", installer)
+        self.assertIn('ValueName: "QuickSideNote"', installer)
+        self.assertIn("uninsdeletevalue", installer)
 
 
 if __name__ == "__main__":

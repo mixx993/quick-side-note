@@ -1,5 +1,5 @@
 #define MyAppName "Quick Side Note"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.5.2"
 #define MyAppPublisher "Quick Side Note"
 #define MyAppExeName "QuickSideNote.exe"
 #define MyAppPackageDir "..\release\QuickSideNote_App_v" + MyAppVersion
@@ -52,6 +52,9 @@ Name: "{autodesktop}\Quick Side Note"; Filename: "{app}\{#MyAppExeName}"; Workin
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 Quick Side Note 并进行首次配置"; Flags: nowait postinstall skipifsilent
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "QuickSideNote"; Flags: uninsdeletevalue
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\tmp"

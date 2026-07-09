@@ -39,6 +39,7 @@ exe = EXE(
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
+    version="QuickSideNote_version_info.txt",
     entitlements_file=None,
     icon=["assets\\quick_note_icon.ico"],
 )
