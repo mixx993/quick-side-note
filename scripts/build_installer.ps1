@@ -13,6 +13,7 @@ $installerPath = Join-Path $releaseDir "QuickSideNote_Setup_v$appVersion.exe"
 $buildManifest = Join-Path $appDir "build-manifest.json"
 $docsDir = Join-Path $root "docs"
 $docsImageDir = Join-Path $docsDir "images"
+$appImageDir = Join-Path $appDir "images"
 $setupScript = Join-Path $root "installer\QuickSideNote.iss"
 $pyInstallerSpec = Join-Path $root "QuickSideNote.spec"
 $distExe = Join-Path $root "dist\QuickSideNote.exe"
@@ -106,8 +107,7 @@ if (-not $SkipAppBuild) {
 
 foreach ($supportItem in @(
     @{ Source = (Join-Path $docsDir "README_RUN.txt"); Destination = (Join-Path $appDir "README_RUN.txt") },
-    @{ Source = (Join-Path $docsDir "QuickSideNote_intro.html"); Destination = (Join-Path $appDir "QuickSideNote_intro.html") },
-    @{ Source = (Join-Path $docsImageDir "quick_note_ui_preview.png"); Destination = (Join-Path $appDir "quick_note_ui_preview.png") }
+    @{ Source = (Join-Path $docsDir "QuickSideNote_intro.html"); Destination = (Join-Path $appDir "QuickSideNote_intro.html") }
 )) {
     if (-not (Test-Path -LiteralPath $supportItem.Source)) {
         throw "Missing installer support file: $($supportItem.Source)"
@@ -115,12 +115,17 @@ foreach ($supportItem in @(
     Copy-Item -LiteralPath $supportItem.Source -Destination $supportItem.Destination -Force
 }
 
+if (-not (Test-Path -LiteralPath $docsImageDir)) {
+    throw "Missing installer image directory: $docsImageDir"
+}
+Copy-Item -LiteralPath $docsImageDir -Destination $appImageDir -Recurse -Force
+
 foreach ($required in @(
     $appExe,
     $buildManifest,
     (Join-Path $appDir "README_RUN.txt"),
     (Join-Path $appDir "QuickSideNote_intro.html"),
-    (Join-Path $appDir "quick_note_ui_preview.png"),
+    (Join-Path $appImageDir "quick_note_ui_preview.png"),
     $setupScript
 )) {
     if (-not (Test-Path -LiteralPath $required)) {

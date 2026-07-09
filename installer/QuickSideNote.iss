@@ -41,7 +41,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Source: "{#MyAppPackageDir}\QuickSideNote.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyAppPackageDir}\README_RUN.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyAppPackageDir}\QuickSideNote_intro.html"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#MyAppPackageDir}\quick_note_ui_preview.png"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyAppPackageDir}\images\*"; DestDir: "{app}\images"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Quick Side Note"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
