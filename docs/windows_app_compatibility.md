@@ -1,12 +1,12 @@
 ﻿# Quick Side Note Windows 应用兼容性检查
 
-检查日期：2026-07-08
+检查日期：2026-07-10
 
 ## 目标形态
 
 Quick Side Note 需要从“解压后运行 exe”升级为常见 Windows 桌面软件形态：
 
-- 用户双击 `QuickSideNote_Setup_v1.5.0.exe` 安装。
+- 用户双击 `QuickSideNote_Setup_v1.5.2.exe` 安装。
 - 默认安装到当前用户目录，不要求管理员权限。
 - 安装后创建开始菜单快捷方式，可选创建桌面快捷方式。
 - 安装向导使用简体中文界面。
@@ -15,7 +15,7 @@ Quick Side Note 需要从“解压后运行 exe”升级为常见 Windows 桌面
 - 应用内设置界面可管理 API、开机启动、侧键选择和双击间隔。
 - 程序启动后在 Windows 通知区域显示托盘图标，可从右键菜单显示/隐藏、打开设置或退出。
 - 卸载入口出现在开始菜单和 Windows“已安装的应用”列表中。
-- v1.5.0 主界面采用暖色纸张质感、顶部横排页签和底部快捷操作栏；设置页输入区保留滚动容器以兼容较小窗口。
+- v1.5.2 保留暖色便签 UI，并增加任务状态 HUD、清空撤销、设置页滚动和侧键响应模式。
 
 ## 当前兼容性结论
 
@@ -24,7 +24,7 @@ Quick Side Note 需要从“解压后运行 exe”升级为常见 Windows 桌面
 | Windows 10/11 | 可用 | 程序使用 Windows 全局鼠标钩子和 Windows OCR，目标平台应限定为 Windows。 |
 | 64 位系统 | 可用 | 当前 PyInstaller 产物来自 64 位 Python，安装器已限制为 x64 compatible。 |
 | 无 Python 环境的新电脑 | 可用 | PyInstaller one-file exe 已包含 Python 运行时和 Python 依赖。 |
-| 无 Codex CLI 的新电脑 | 基本可用 | 主路径已经改为 Windows OCR + DeepSeek 文本翻译；Codex CLI 只作为 OCR 失败时的兜底。 |
+| 无 Codex CLI 的新电脑 | 可用 | 主路径为 Windows OCR + DeepSeek 文本翻译；图片兜底默认关闭。 |
 | 无 DeepSeek API Key 的新电脑 | 可用 | 首次运行会弹出配置窗口，并写入当前 Windows 用户环境变量 `DEEPSEEK_API_KEY`。 |
 | 无管理员权限 | 可安装 | Inno Setup 脚本使用 `PrivilegesRequired=lowest`，默认安装到 `%LOCALAPPDATA%`。 |
 | 便签数据迁移 | 可用 | 每个便签页是独立 txt，数据在 `%USERPROFILE%\Documents\QuickSideNote`。 |
@@ -81,6 +81,7 @@ installer\ChineseSimplified.isl
 卸载策略：
 
 - 卸载程序文件和安装目录内临时目录。
+- 清理名为 `QuickSideNote` 的当前用户开机启动项。
 - 不主动删除 `%USERPROFILE%\Documents\QuickSideNote`，避免误删用户便签和生词本。
 
 ## 构建方式
@@ -106,7 +107,8 @@ installer\ChineseSimplified.isl
 输出文件：
 
 ```text
-release\QuickSideNote_Setup_v1.5.0.exe
+release\QuickSideNote_Setup_v1.5.2.exe
+release\QuickSideNote_App_v1.5.2.zip
 ```
 
 ## 建议的首次配置流程

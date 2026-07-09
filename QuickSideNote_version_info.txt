@@ -1,0 +1,30 @@
+# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 5, 2, 0),
+    prodvers=(1, 5, 2, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        '080404B0',
+        [
+          StringStruct('CompanyName', 'Quick Side Note'),
+          StringStruct('FileDescription', 'Quick Side Note'),
+          StringStruct('FileVersion', '1.5.2.0'),
+          StringStruct('InternalName', 'QuickSideNote'),
+          StringStruct('OriginalFilename', 'QuickSideNote.exe'),
+          StringStruct('ProductName', 'Quick Side Note'),
+          StringStruct('ProductVersion', '1.5.2.0')
+        ]
+      )
+    ]),
+    VarFileInfo([VarStruct('Translation', [2052, 1200])])
+  ]
+)
