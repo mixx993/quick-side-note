@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Quick Side Note v1.5.2 侧键便签软件介绍</title>
+  <title>Quick Side Note v1.6.0 侧键单词本软件介绍</title>
   <style>
     :root {
       color-scheme: light;
@@ -115,6 +115,7 @@
 
     .eyebrow {
       width: fit-content;
+      max-width: 100%;
       margin: 0 0 16px;
       padding: 5px 10px;
       border: 1px solid #ead0af;
@@ -123,6 +124,7 @@
       color: var(--blue);
       font-size: 13px;
       font-weight: 700;
+      overflow-wrap: anywhere;
     }
 
     h1,
@@ -638,7 +640,7 @@
       .split,
       .install-grid,
       .release-panel {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
       }
 
       .feature-grid,
@@ -651,16 +653,36 @@
 
     @media (max-width: 640px) {
       .topbar {
-        align-items: flex-start;
+        align-items: stretch;
         flex-direction: column;
+        gap: 8px;
       }
 
       .nav {
+        width: 100%;
         justify-content: flex-start;
+        gap: 2px;
+      }
+
+      .nav a {
+        padding: 6px 7px;
+        font-size: 13px;
       }
 
       .hero {
         padding-top: 34px;
+        width: 100%;
+        min-width: 0;
+        max-width: 100vw;
+        grid-template-columns: minmax(0, 1fr);
+        overflow: hidden;
+      }
+
+      .hero > div,
+      .device {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
       }
 
       h1 {
@@ -670,7 +692,17 @@
 
       .lead {
         font-size: 16px;
-        max-width: calc(100vw - 48px);
+        width: 100%;
+        max-width: 100%;
+        word-break: break-all;
+      }
+
+      .quick-facts,
+      .feature-grid,
+      .steps,
+      .reliability-grid {
+        width: 100%;
+        min-width: 0;
       }
 
       .feature-grid,
@@ -702,6 +734,7 @@
       <nav class="nav" aria-label="页面导航">
         <a href="#status">版本</a>
         <a href="#features">功能</a>
+        <a href="#vocabulary">学习包</a>
         <a href="#workflow">流程</a>
         <a href="#reliability">体验</a>
         <a href="#usage">操作</a>
@@ -712,11 +745,11 @@
     <main id="top">
       <section class="hero" aria-labelledby="hero-title">
         <div>
-          <p class="eyebrow">v1.5.2 / Windows 侧键便签 / OCR 翻译 / 托盘常驻</p>
+          <p class="eyebrow">v1.6.0 / Windows 侧键单词本 / OCR 翻译 / 词汇学习包</p>
           <h1 id="hero-title">Quick Side Note<br>侧键便签</h1>
           <p class="lead">
             这是一款为阅读英文资料设计的轻量桌面工具：按下鼠标侧键即可框选屏幕文字，
-            程序在本地识别、翻译并记录结果，整个任务过程始终有状态反馈和取消入口。
+            程序在本地识别、翻译并记录结果，再把长期积累的零散单词整理成可以直接复习的学习包。
           </p>
           <div class="hero-actions" aria-label="主要入口">
             <a class="btn primary" href="#usage">查看操作方式</a>
@@ -724,16 +757,16 @@
           </div>
           <div class="quick-facts" aria-label="核心信息">
             <div class="fact">
-              <strong>过程始终可见</strong>
-              <span>框选、识别、翻译和完成都会显示清晰状态。</span>
+              <strong>零散单词自动汇总</strong>
+              <span>读取单词本与已有翻译记录，自动识别并去除重复内容。</span>
             </div>
             <div class="fact">
-              <strong>失败可恢复</strong>
-              <span>再次按侧键或 Esc 可取消；失败后可重新框选或返回便签。</span>
+              <strong>一键形成学习包</strong>
+              <span>生成主题分组、易混词、例句、记忆路线和复习小测。</span>
             </div>
             <div class="fact">
-              <strong>即时或兼容</strong>
-              <span>可保留双击切换，也可启用即时框选，消除单击等待。</span>
+              <strong>原始便签保持不变</strong>
+              <span>学习成果单独保存为 Markdown，原有 txt 与生词记录不迁移。</span>
             </div>
           </div>
         </div>
@@ -754,31 +787,51 @@
         <div class="section-inner">
           <div class="release-panel" aria-label="当前版本状态">
             <div class="release-card version">
-              <span class="version-tag">当前版本 v1.5.2</span>
-              <strong>界面可用性与交互闭环更新</strong>
-              <p>本版修复底部操作栏和设置页裁切，增加翻译任务状态、失败恢复、清空撤销和即时框选模式。</p>
+              <span class="version-tag">当前版本 v1.6.0</span>
+              <strong>从零散单词到词汇学习包</strong>
+              <p>本版增加单词汇总、自动去重、后台生成和 Markdown 成果编辑，把积累与复习接成一个流程。</p>
             </div>
             <div class="release-card">
-              <strong>任务状态</strong>
-              <span>任务 HUD 覆盖准备框选、识别、翻译、完成、取消和失败恢复。</span>
+              <strong>自动汇总</strong>
+              <span>同时读取“单词本”页与生词记录，保留已有释义并合并重复单词。</span>
             </div>
             <div class="release-card">
-              <strong>误操作保护</strong>
-              <span>清空当前页后可在 8 秒内撤销，不会立即覆盖原有内容。</span>
+              <strong>后台生成</strong>
+              <span>选择最近 30 个或全部单词，等待期间主便签仍然可以继续使用。</span>
             </div>
             <div class="release-card">
-              <strong>设置更完整</strong>
-              <span>API 可测试连接，所有设置页可滚动，并会适应当前显示器工作区。</span>
+              <strong>成果可继续使用</strong>
+              <span>学习包自动保存，支持继续编辑、保存修改、复制全部和打开目录。</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section id="vocabulary">
+        <div class="section-inner split">
+          <div class="section-title">
+            <h2>把记过的单词变成一份学习成果</h2>
+            <p>点击“整理”或按 Ctrl+M，程序会自动找到单词本中的有效英文内容。用户只需选择最近 30 个或全部单词，然后生成学习包。</p>
+            <p>结果固定包含主题分组、易混词与搭配、例句、记忆路线和复习小测，生成后仍可直接修改。</p>
+          </div>
+          <aside class="device" aria-label="单词整理窗口预览">
+            <div class="device-bar">
+              <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+              <span>整理单词</span>
+            </div>
+            <div class="preview">
+              <img src="images/quick_note_vocabulary_studio_preview_v1_6.png" alt="Quick Side Note 单词整理窗口">
+            </div>
+            <p class="visual-caption">操作只保留范围选择和生成入口，成果自动保存到用户文档目录。</p>
+          </aside>
         </div>
       </section>
 
       <section id="features">
         <div class="section-inner">
           <div class="section-title">
-            <h2>围绕阅读和摘录做减法</h2>
-            <p>软件把截图、识别、翻译、记录和词汇沉淀串成一个动作，减少在多个窗口之间切换。</p>
+            <h2>捕获保持轻，整理只多一步</h2>
+            <p>侧键取词方式不变；需要复习时，再从积累的单词中生成一份结构化学习包。</p>
           </div>
 
           <div class="feature-grid">
@@ -799,18 +852,18 @@
             </article>
             <article class="feature">
               <div class="feature-icon">4</div>
-              <h3>多页便签</h3>
-              <p>不同主题放在不同 txt 页面；页签提供更多菜单和键盘重命名入口。</p>
+              <h3>单词自动去重</h3>
+              <p>识别原文/译文记录和单独英文行，不区分大小写合并重复单词。</p>
             </article>
             <article class="feature">
               <div class="feature-icon">5</div>
-              <h3>清空可撤销</h3>
-              <p>误清空当前页后可在 8 秒内恢复，保留记录时的连续感。</p>
+              <h3>词汇学习包</h3>
+              <p>自动生成分组、搭配、例句、记忆路线和带答案的小测。</p>
             </article>
             <article class="feature">
               <div class="feature-icon">6</div>
-              <h3>托盘和设置中心</h3>
-              <p>管理 API 测试、开机启动、侧键模式和浏览器快捷键拦截。</p>
+              <h3>Markdown 成果</h3>
+              <p>结果单独保存，可继续编辑、保存修改、复制或从目录打开。</p>
             </article>
           </div>
         </div>
@@ -819,40 +872,40 @@
       <section id="workflow" class="workflow">
         <div class="section-inner">
           <div class="section-title">
-            <h2>一次侧键，状态一路可见</h2>
-            <p>v1.5.2 把框选后的等待变成可理解、可取消、可恢复的连续流程。</p>
+            <h2>从积累到复习，只保留必要步骤</h2>
+            <p>v1.6.0 不要求维护标签或知识库，直接使用已有单词本生成学习成果。</p>
           </div>
 
           <div class="steps">
             <div class="step">
               <span class="step-number">01</span>
-              <strong>按下侧键</strong>
-              <span>兼容模式等待双击；即时模式立即框选。</span>
+              <strong>积累单词</strong>
+              <span>继续使用侧键 OCR、翻译或手动输入。</span>
             </div>
             <div class="step">
               <span class="step-number">02</span>
-              <strong>准备框选</strong>
-              <span>任务面板提示当前操作，再次按侧键或 Esc 可取消。</span>
+              <strong>打开整理</strong>
+              <span>点击标题栏“整理”、托盘菜单或按 Ctrl+M。</span>
             </div>
             <div class="step">
               <span class="step-number">03</span>
-              <strong>框选英文</strong>
-              <span>拖拽选中要翻译的区域。</span>
+              <strong>选择范围</strong>
+              <span>整理最近 30 个或全部不重复单词。</span>
             </div>
             <div class="step">
               <span class="step-number">04</span>
-              <strong>本地识别</strong>
-              <span>Windows OCR 优先提取文本。</span>
+              <strong>后台生成</strong>
+              <span>DeepSeek 根据固定结构整理学习内容。</span>
             </div>
             <div class="step">
               <span class="step-number">05</span>
-              <strong>文本翻译</strong>
-              <span>DeepSeek 返回简明中文释义。</span>
+              <strong>检查和编辑</strong>
+              <span>在结果窗口中直接调整 Markdown 内容。</span>
             </div>
             <div class="step">
               <span class="step-number">06</span>
-              <strong>写入便签</strong>
-              <span>结果写入当前 txt 页面和生词本，失败时可重新框选。</span>
+              <strong>保存成果</strong>
+              <span>保存修改、复制全部，或从成果目录继续使用。</span>
             </div>
           </div>
         </div>
@@ -874,8 +927,8 @@
               <p>侧键和 Esc 都能取消当前任务。网络、API 或识别失败后，可以重新框选，也可以直接返回便签。</p>
             </article>
             <article class="reliability-card">
-              <strong>保存不冒险</strong>
-              <p>输入自动保存；清空当前页后保留撤销窗口。便签和状态继续使用原子写入与备份恢复路径。</p>
+              <strong>整理不改原文</strong>
+              <p>生成学习包只读取现有单词，结果单独保存为 Markdown；原便签与生词记录保持原格式。</p>
             </article>
           </div>
         </div>
@@ -908,8 +961,9 @@
               <li><span>即时框选模式</span><span>侧键单击立即开始框选；窗口切换改用托盘或 Ctrl+Alt+N。</span></li>
               <li><span>任务中再次按 <kbd>侧键 1</kbd> 或 <kbd>Esc</kbd></span><span>取消框选、识别或翻译任务。</span></li>
               <li><span>托盘图标双击</span><span>显示或隐藏便签窗口。</span></li>
-              <li><span>托盘图标右键</span><span>打开显示/隐藏、设置和退出菜单。</span></li>
+              <li><span>托盘图标右键</span><span>打开显示/隐藏、整理单词、设置和退出菜单。</span></li>
               <li><span><kbd>Ctrl</kbd> + <kbd>K</kbd></span><span>打开 API 设置。</span></li>
+              <li><span><kbd>Ctrl</kbd> + <kbd>M</kbd></span><span>汇总单词本并生成词汇学习包。</span></li>
               <li><span><kbd>Ctrl</kbd> + <kbd>,</kbd></span><span>打开完整设置界面。</span></li>
               <li><span><kbd>Ctrl</kbd> + <kbd>S</kbd></span><span>保存当前便签。</span></li>
               <li><span><kbd>Ctrl</kbd> + <kbd>L</kbd></span><span>清空当前页；8 秒内可以撤销。</span></li>
@@ -936,6 +990,7 @@
               <div class="storage-row"><code>%USERPROFILE%\Documents\QuickSideNote\note.txt</code><span>第 1 页便签</span></div>
               <div class="storage-row"><code>%USERPROFILE%\Documents\QuickSideNote\note-2.txt</code><span>第 2 页及后续便签</span></div>
               <div class="storage-row"><code>%USERPROFILE%\Documents\QuickSideNote\vocabulary.jsonl</code><span>生词和翻译记录</span></div>
+              <div class="storage-row"><code>%USERPROFILE%\Documents\QuickSideNote\studio\*.md</code><span>词汇学习包</span></div>
               <div class="storage-row"><code>%USERPROFILE%\Documents\QuickSideNote\state.json</code><span>窗口和当前页状态</span></div>
               <div class="storage-row"><code>%USERPROFILE%\Documents\QuickSideNote\quick_note.log</code><span>运行日志</span></div>
             </div>
@@ -953,15 +1008,15 @@
           <div class="install-grid">
             <div class="install-card">
               <strong>1. 运行安装器</strong>
-              <p>双击 <code>QuickSideNote_Setup_v1.5.2.exe</code>，按向导安装到当前 Windows 用户目录。</p>
+              <p>双击 <code>QuickSideNote_Setup_v1.6.0.exe</code>，按向导安装到当前 Windows 用户目录。</p>
             </div>
             <div class="install-card">
               <strong>2. 首次配置</strong>
               <p>第一次运行如果没有检测到 <code>DEEPSEEK_API_KEY</code>，会弹出首次设置窗口；保存前可测试 API 连接。</p>
             </div>
             <div class="install-card">
-              <strong>3. 开始阅读</strong>
-              <p>打开网页、PDF 或图片资料，按鼠标侧键框选英文；任务状态会持续显示，结果自动写入便签。</p>
+              <strong>3. 积累并整理</strong>
+              <p>按侧键积累单词；需要复习时按 Ctrl+M，把零散内容生成一份词汇学习包。</p>
             </div>
           </div>
         </div>
@@ -971,7 +1026,7 @@
     <footer class="footer">
       <div class="footer-inner">
         <span>Quick Side Note 侧键便签</span>
-        <span>本页面为 v1.5.2 本地 HTML 介绍页，可随应用程序包一起分发。</span>
+        <span>本页面为 v1.6.0 本地 HTML 介绍页，可随应用程序包一起分发。</span>
       </div>
     </footer>
   </div>

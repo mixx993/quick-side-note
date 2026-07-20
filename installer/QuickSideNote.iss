@@ -1,5 +1,5 @@
 #define MyAppName "Quick Side Note"
-#define MyAppVersion "1.5.2"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "Quick Side Note"
 #define MyAppExeName "QuickSideNote.exe"
 #define MyAppPackageDir "..\release\QuickSideNote_App_v" + MyAppVersion
