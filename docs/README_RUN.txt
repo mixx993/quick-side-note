@@ -1,7 +1,7 @@
 ﻿Quick Side Note 侧键便签
 
 安装方式：
-  双击 QuickSideNote_Setup_v1.5.2.exe，根据安装向导完成安装。
+  双击 QuickSideNote_Setup_v1.6.0.exe，根据安装向导完成安装。
   默认安装到当前 Windows 用户目录，不需要管理员权限。
   安装完成后，可以从开始菜单启动 Quick Side Note。
 
@@ -20,6 +20,7 @@
   如果在设置中选择“即时框选”：单击侧键立即框选，使用托盘或 Ctrl+Alt+N 切换窗口
   框选或翻译中：按 Esc，或再次按鼠标侧键 1，可取消当前任务
   Ctrl+K：打开 API 设置
+  Ctrl+M：整理单词本，生成词汇学习包
   Ctrl+,：打开完整设置界面
   Ctrl+S：保存当前便签
   Esc：保存并隐藏便签窗口
@@ -35,7 +36,13 @@
   输入页可以选择鼠标侧键 1 或侧键 2，调整浏览器键拦截、响应模式和双击判定间隔。
   开机启动页可以开启或关闭 Windows 登录后自动启动。
 
-v1.5.2 UI 与交互更新：
+v1.6.0 单词整理：
+  点击便签窗口右上角“整理”、按 Ctrl+M，或使用托盘菜单“整理单词”。
+  程序会自动汇总“单词本”页和生词记录，并按单词去重。
+  可以整理最近 30 个或全部单词，生成主题分组、例句、记忆路线和复习小测。
+  学习包自动保存到 Documents\QuickSideNote\studio，并可继续编辑、复制或保存修改。
+
+继承 v1.5.2 UI 与交互更新：
   底部操作栏在默认与最小窗口尺寸下始终可见。
   所有设置页支持滚动，窗口会自动适应当前显示器工作区。
   框选、识别、翻译阶段会显示状态面板；失败可重新框选或返回便签。
@@ -45,6 +52,7 @@ v1.5.2 UI 与交互更新：
   %USERPROFILE%\Documents\QuickSideNote\note.txt
   %USERPROFILE%\Documents\QuickSideNote\note-2.txt
   %USERPROFILE%\Documents\QuickSideNote\vocabulary.jsonl
+  %USERPROFILE%\Documents\QuickSideNote\studio\*.md
   %USERPROFILE%\Documents\QuickSideNote\state.json
   %USERPROFILE%\Documents\QuickSideNote\quick_note.log
 

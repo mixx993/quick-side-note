@@ -23,7 +23,7 @@ from PIL import Image, ImageGrab, ImageOps
 
 
 APP_NAME = "Quick Side Note"
-APP_VERSION = "1.5.2"
+APP_VERSION = "1.6.0"
 NOTE_DIR = Path.home() / "Documents" / "QuickSideNote"
 NOTE_FILE = NOTE_DIR / "note.txt"
 DEFAULT_NOTE_PAGES = (
@@ -223,6 +223,9 @@ CODEX_REASONING_EFFORT = "low"
 DEEPSEEK_TEXT_MODEL = "deepseek-chat"
 DEEPSEEK_CHAT_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_TIMEOUT_SECONDS = 8
+VOCABULARY_GENERATION_TIMEOUT_SECONDS = 60
+VOCABULARY_RECENT_LIMIT = 30
+VOCABULARY_MAX_ENTRIES = 150
 DEFAULT_APP_SETTINGS = {
     "side_button": "xbutton1",
     "block_browser_key": True,
@@ -268,25 +271,10 @@ TEXT_TRANSLATION_SYSTEM_PROMPT = (
     "Return strict JSON only. If a word is ambiguous, include the most common "
     "Chinese meanings separated by Chinese semicolons."
 )
-STUDIO_MODES = {
-    "report": ("报告", "整理成结构化阅读报告", "md"),
-    "mind_map": ("思维导图", "生成 Mermaid 思维导图", "md"),
-    "infographic": ("信息图", "生成可打开的 HTML 信息图", "html"),
-    "quiz": ("测验", "生成自测题和参考答案", "md"),
-    "flashcards": ("闪卡", "生成问答式复习卡片", "md"),
-    "data_table": ("数据表格", "整理为 Markdown 表格", "md"),
-    "audio_script": ("音频概览稿", "生成双人播客式讲稿", "md"),
-    "slides": ("演示文稿", "生成 6 页演示大纲", "md"),
-}
-STUDIO_MODE_ORDER = (
-    "report",
-    "mind_map",
-    "infographic",
-    "quiz",
-    "flashcards",
-    "data_table",
-    "audio_script",
-    "slides",
+VOCABULARY_STUDY_SYSTEM_PROMPT = (
+    "你是一名英语词汇学习教练。请只围绕用户提供的单词和短语，"
+    "把零散记录整理成简洁、准确、可复习的中文学习材料。"
+    "输出 Markdown，不要解释生成过程。"
 )
 
 
@@ -667,6 +655,30 @@ def clamp_dialog_to_work_area(
     return width, height, x, y
 
 
+def opposite_corner_position(
+    container_width,
+    container_height,
+    item_width,
+    item_height,
+    pointer_x,
+    pointer_y,
+    margin=28,
+):
+    """Place an overlay item in the corner opposite the pointer."""
+    container_width = max(1, int(container_width))
+    container_height = max(1, int(container_height))
+    item_width = min(max(1, int(item_width)), container_width)
+    item_height = min(max(1, int(item_height)), container_height)
+    margin = max(0, int(margin))
+    left = min(margin, max(0, container_width - item_width))
+    top = min(margin, max(0, container_height - item_height))
+    right = max(0, container_width - item_width - margin)
+    bottom = max(0, container_height - item_height - margin)
+    x = right if float(pointer_x) < container_width / 2 else left
+    y = bottom if float(pointer_y) < container_height / 2 else top
+    return x, y
+
+
 @dataclass(frozen=True)
 class TranslationResult:
     source_text: str
@@ -683,9 +695,11 @@ class TranslationTask:
 
 
 @dataclass(frozen=True)
-class NoteSource:
-    title: str
-    content: str
+class VocabularyEntry:
+    term: str
+    translation: str = ""
+    created_at: str = ""
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -805,6 +819,179 @@ def normalized_note_page(page, pages=None):
 
 def note_file_for_page(page):
     return page_file_for_id(page)
+
+
+def normalize_vocabulary_term(value):
+    term = re.sub(r"\s+", " ", str(value or "")).strip()
+    term = re.sub(r"^(?:[-*•]|\d+[.)、])\s*", "", term)
+    return term.strip(" \t\r\n\"'“”‘’.,;:!?，。；：！？()[]{}")
+
+
+def is_vocabulary_term(value):
+    term = normalize_vocabulary_term(value)
+    if not term or len(term) > 80 or len(term.split()) > 6:
+        return False
+    return bool(
+        re.fullmatch(r"[A-Za-z][A-Za-z0-9'’\-]*(?:\s+[A-Za-z0-9'’\-]+){0,5}", term)
+    )
+
+
+def normalize_vocabulary_translation(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def extract_vocabulary_entries_from_text(text, source="note"):
+    entries = []
+    lines = str(text or "").splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        source_match = re.match(r"^原文\s*[:：]\s*(.+)$", line)
+        if source_match:
+            term = normalize_vocabulary_term(source_match.group(1))
+            translation = ""
+            if index + 1 < len(lines):
+                translation_match = re.match(
+                    r"^译文\s*[:：]\s*(.*)$", lines[index + 1].strip()
+                )
+                if translation_match:
+                    translation = normalize_vocabulary_translation(
+                        translation_match.group(1)
+                    )
+                    index += 1
+            if is_vocabulary_term(term):
+                entries.append(
+                    VocabularyEntry(term=term, translation=translation, source=source)
+                )
+        elif is_vocabulary_term(line):
+            entries.append(
+                VocabularyEntry(
+                    term=normalize_vocabulary_term(line),
+                    source=source,
+                )
+            )
+        index += 1
+    return entries
+
+
+def read_vocabulary_jsonl(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+
+    entries = []
+    try:
+        lines = read_text_with_fallback(path).splitlines()
+    except (OSError, UnicodeDecodeError):
+        return entries
+
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        term = normalize_vocabulary_term(row.get("source_text"))
+        if not is_vocabulary_term(term):
+            continue
+        entries.append(
+            VocabularyEntry(
+                term=term,
+                translation=normalize_vocabulary_translation(row.get("translation")),
+                created_at=str(row.get("created_at") or ""),
+                source=path.name,
+            )
+        )
+    return entries
+
+
+def merge_vocabulary_entries(entries):
+    order = []
+    merged = {}
+    for entry in entries:
+        term = normalize_vocabulary_term(entry.term)
+        if not is_vocabulary_term(term):
+            continue
+        key = term.casefold()
+        previous = merged.get(key)
+        if previous is not None:
+            order.remove(key)
+        merged[key] = VocabularyEntry(
+            term=term,
+            translation=(
+                normalize_vocabulary_translation(entry.translation)
+                or (previous.translation if previous is not None else "")
+            ),
+            created_at=entry.created_at or (previous.created_at if previous else ""),
+            source=entry.source or (previous.source if previous else ""),
+        )
+        order.append(key)
+    return [merged[key] for key in order]
+
+
+def collect_vocabulary_entries(note_paths=None, vocabulary_path=VOCABULARY_FILE):
+    entries = read_vocabulary_jsonl(vocabulary_path)
+    for note_path in note_paths or (NOTE_FILE,):
+        note_path = Path(note_path)
+        if not note_path.exists():
+            continue
+        try:
+            content = read_text_with_fallback(note_path)
+        except (OSError, UnicodeDecodeError):
+            continue
+        entries.extend(
+            extract_vocabulary_entries_from_text(content, source=note_path.name)
+        )
+    return merge_vocabulary_entries(entries)
+
+
+def build_vocabulary_learning_prompt(entries):
+    selected = list(entries)[-VOCABULARY_MAX_ENTRIES:]
+    vocabulary_lines = []
+    for entry in selected:
+        translation = entry.translation or "（未记录释义）"
+        vocabulary_lines.append(f"- {entry.term} — {translation}")
+    vocabulary = "\n".join(vocabulary_lines)
+    return (
+        f"请把以下 {len(selected)} 个单词和短语整理成一份中文词汇学习包。\n\n"
+        "严格使用下面的结构：\n"
+        "# 词汇学习包\n"
+        "## 主题分组\n"
+        "按含义或使用场景分组，每个输入词都要出现，并保留英文和简明中文释义。\n"
+        "## 易混词与常用搭配\n"
+        "只选择确实容易混淆或有常见搭配的词，不要硬凑。\n"
+        "## 例句\n"
+        "选择最值得掌握的词写自然、简短的英文例句，并附中文翻译。\n"
+        "## 记忆路线\n"
+        "给出一条简短的分组复习顺序。\n"
+        "## 复习小测\n"
+        "生成 8 道填空或释义题，最后单独列出答案。\n\n"
+        "不要增加新的目标词，不要编造词义。输入词表如下：\n"
+        f"{vocabulary}"
+    )
+
+
+def strip_markdown_fence(text):
+    content = str(text or "").strip()
+    match = re.fullmatch(r"```(?:markdown|md)?\s*(.*?)\s*```", content, re.DOTALL)
+    return match.group(1).strip() if match else content
+
+
+def save_studio_output(output, directory=STUDIO_DIR, now=None):
+    directory = Path(directory)
+    timestamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    path = directory / f"vocabulary-study-pack-{timestamp}.{output.extension}"
+    counter = 2
+    while path.exists():
+        path = directory / (
+            f"vocabulary-study-pack-{timestamp}-{counter}.{output.extension}"
+        )
+        counter += 1
+    atomic_write_text(path, output.content.rstrip() + "\n")
+    return path
 
 
 def read_state_data():
@@ -1301,6 +1488,73 @@ class DeepSeekTextBackend:
         return TranslationResult(source_text=source_text, translation=result.translation)
 
 
+class VocabularyOrganizerBackend:
+    def __init__(self, timeout_seconds=VOCABULARY_GENERATION_TIMEOUT_SECONDS):
+        self.timeout_seconds = timeout_seconds
+
+    def generate(self, entries):
+        selected = list(entries)[-VOCABULARY_MAX_ENTRIES:]
+        if not selected:
+            raise RuntimeError("单词本中没有可整理的英文单词。")
+
+        api_key = get_user_environment_value("DEEPSEEK_API_KEY")
+        if not api_key:
+            raise RuntimeError("请先在设置中配置 DeepSeek API Key。")
+
+        body = {
+            "model": DEEPSEEK_TEXT_MODEL,
+            "messages": [
+                {"role": "system", "content": VOCABULARY_STUDY_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": build_vocabulary_learning_prompt(selected),
+                },
+            ],
+            "temperature": 0.25,
+            "max_tokens": 3000,
+        }
+        request = urllib.request.Request(
+            DEEPSEEK_CHAT_COMPLETIONS_URL,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                response_text = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401, 403}:
+                raise RuntimeError("API Key 无效或没有权限，请在设置中重新配置。") from exc
+            raise RuntimeError(f"单词整理失败：服务返回 HTTP {exc.code}。") from exc
+        except OSError as exc:
+            raise RuntimeError("单词整理失败：无法连接 DeepSeek 服务。") from exc
+
+        try:
+            data = json.loads(response_text)
+            content = strip_markdown_fence(data["choices"][0]["message"]["content"])
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError("单词整理失败：服务响应格式异常。") from exc
+        if not content:
+            raise RuntimeError("单词整理失败：服务没有返回内容。")
+
+        first_line = next(
+            (line.strip() for line in content.splitlines() if line.strip()),
+            "",
+        )
+        if not re.fullmatch(r"#\s*词汇学习包", first_line):
+            content = f"# 词汇学习包\n\n{content}"
+        return StudioOutput(
+            mode="vocabulary_pack",
+            title=f"词汇学习包 · {datetime.now():%Y-%m-%d}",
+            extension="md",
+            content=content,
+        )
+
+
 class FastTranslationBackend:
     def __init__(self, fallback_backend, image_fallback_enabled=False):
         self.ocr_backend = WindowsOcrBackend()
@@ -1691,6 +1945,320 @@ class TaskProgressHud:
             pass
 
 
+class VocabularyStudyDialog:
+    def __init__(
+        self,
+        root,
+        entries,
+        generate_callback,
+        save_callback,
+        close_callback,
+    ):
+        self.root = root
+        self.entries = list(entries)
+        self.generate_callback = generate_callback
+        self.save_callback = save_callback
+        self.close_callback = close_callback
+        self.output_path = None
+        self.closed = False
+        self.scope_var = tk.StringVar(value="recent")
+        self.status_var = tk.StringVar(value="准备整理")
+
+        self.window = tk.Toplevel(root)
+        self.window.title("整理单词")
+        self.window.configure(bg=NOTE_DIALOG_BG)
+        self.window.resizable(True, True)
+        if ICON_FILE.exists():
+            self.window.iconbitmap(ICON_FILE)
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.window.bind("<Escape>", lambda _event: self.close())
+        self.window.bind("<Control-Return>", lambda _event: self._generate())
+        self.window.bind("<Control-s>", lambda _event: self._save())
+
+        pointer_x = root.winfo_pointerx()
+        pointer_y = root.winfo_pointery()
+        work_area = monitor_work_area_for_point(
+            pointer_x,
+            pointer_y,
+            root.winfo_screenwidth(),
+            root.winfo_screenheight(),
+        )
+        width, height, x, y = clamp_dialog_to_work_area(700, 600, work_area)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
+        self.window.minsize(min(540, width), min(440, height))
+
+        header = tk.Frame(self.window, bg=NOTE_HEADER_BG, height=52)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Frame(header, bg=NOTE_ACCENT, width=4).pack(side="left", fill="y")
+        tk.Label(
+            header,
+            text="整理单词",
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_HEADER_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 12, "bold"),
+        ).pack(side="left", fill="y", padx=16)
+        tk.Button(
+            header,
+            text="×",
+            command=self.close,
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_MUTED_TEXT,
+            activebackground=NOTE_CLOSE_HOVER_BG,
+            activeforeground=NOTE_CLOSE_HOVER_FG,
+            relief="flat",
+            bd=0,
+            width=4,
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 14),
+        ).pack(side="right", fill="y")
+
+        body = tk.Frame(self.window, bg=NOTE_DIALOG_BG, padx=22, pady=18)
+        body.pack(fill="both", expand=True)
+        body.grid_columnconfigure(0, weight=1)
+        body.grid_rowconfigure(3, weight=1)
+
+        tk.Label(
+            body,
+            text=f"单词本中找到 {len(self.entries)} 个不重复单词",
+            bg=NOTE_DIALOG_BG,
+            fg=NOTE_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 10, "bold"),
+        ).grid(row=0, column=0, sticky="ew")
+
+        scope_row = tk.Frame(body, bg=NOTE_DIALOG_BG)
+        scope_row.grid(row=1, column=0, sticky="ew", pady=(12, 14))
+        tk.Label(
+            scope_row,
+            text="整理范围",
+            bg=NOTE_DIALOG_BG,
+            fg=NOTE_MUTED_TEXT,
+            font=("Microsoft YaHei UI", 9),
+        ).pack(side="left", padx=(0, 10))
+        self.scope_buttons = []
+        for value, label in (
+            ("recent", f"最近 {min(VOCABULARY_RECENT_LIMIT, len(self.entries))} 个"),
+            ("all", f"全部 {min(VOCABULARY_MAX_ENTRIES, len(self.entries))} 个"),
+        ):
+            button = tk.Radiobutton(
+                scope_row,
+                text=label,
+                value=value,
+                variable=self.scope_var,
+                indicatoron=False,
+                bg=NOTE_FIELD_BG,
+                fg=NOTE_TEXT,
+                selectcolor=NOTE_ACCENT_SOFT,
+                activebackground=NOTE_ACCENT_HOVER,
+                activeforeground=NOTE_ACCENT_ACTIVE,
+                relief="flat",
+                bd=0,
+                padx=12,
+                pady=5,
+                cursor="hand2",
+                takefocus=True,
+                font=("Microsoft YaHei UI", 9),
+            )
+            button.pack(side="left", padx=(0, 6))
+            self.scope_buttons.append(button)
+
+        tk.Label(
+            body,
+            text="词汇学习包",
+            bg=NOTE_DIALOG_BG,
+            fg=NOTE_MUTED_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 9),
+        ).grid(row=2, column=0, sticky="ew", pady=(0, 6))
+
+        result_frame = tk.Frame(
+            body,
+            bg=NOTE_PAPER_BORDER,
+            padx=1,
+            pady=1,
+        )
+        result_frame.grid(row=3, column=0, sticky="nsew")
+        result_frame.grid_rowconfigure(0, weight=1)
+        result_frame.grid_columnconfigure(0, weight=1)
+        self.result_text = tk.Text(
+            result_frame,
+            width=1,
+            height=1,
+            wrap="word",
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=12,
+            undo=True,
+            bg=NOTE_PAPER_BG,
+            fg=NOTE_MUTED_TEXT,
+            insertbackground=NOTE_INSERT,
+            selectbackground=NOTE_SELECTION_BG,
+            selectforeground=NOTE_SELECTION_FG,
+            font=("Microsoft YaHei UI", 10),
+            spacing3=5,
+        )
+        self.result_text.grid(row=0, column=0, sticky="nsew")
+        scrollbar = tk.Scrollbar(result_frame, command=self.result_text.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.result_text.configure(yscrollcommand=scrollbar.set)
+        self.result_text.insert("1.0", "点击“生成学习包”开始整理。")
+        self.result_text.configure(state="disabled")
+
+        status_row = tk.Frame(body, bg=NOTE_DIALOG_BG)
+        status_row.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+        self.status_label = tk.Label(
+            status_row,
+            textvariable=self.status_var,
+            bg=NOTE_DIALOG_BG,
+            fg=NOTE_MUTED_TEXT,
+            anchor="w",
+            font=("Microsoft YaHei UI", 8),
+        )
+        self.status_label.pack(side="left", fill="x", expand=True)
+
+        footer = tk.Frame(self.window, bg=NOTE_HEADER_BG, padx=18, pady=12)
+        footer.pack(fill="x")
+        self.open_button = self._make_button(
+            footer,
+            "打开目录",
+            self._open_folder,
+        )
+        self.open_button.pack(side="left")
+        self.copy_button = self._make_button(footer, "复制全部", self._copy)
+        self.copy_button.pack(side="right", padx=(8, 0))
+        self.save_button = self._make_button(footer, "保存修改", self._save)
+        self.save_button.pack(side="right", padx=(8, 0))
+        self.generate_button = self._make_button(
+            footer,
+            "生成学习包",
+            self._generate,
+            primary=True,
+        )
+        self.generate_button.pack(side="right")
+        for button in (self.open_button, self.copy_button, self.save_button):
+            button.configure(state="disabled")
+
+        self.window.transient(root)
+        self.window.lift()
+        self.window.focus_force()
+
+    def _make_button(self, parent, text, command, primary=False):
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=NOTE_ACCENT if primary else NOTE_ACCENT_SOFT,
+            fg=NOTE_PAPER_BG if primary else NOTE_ACCENT,
+            activebackground=NOTE_ACCENT_ACTIVE if primary else NOTE_ACCENT_HOVER,
+            activeforeground=NOTE_PAPER_BG if primary else NOTE_ACCENT_ACTIVE,
+            disabledforeground=NOTE_MUTED_TEXT,
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=7,
+            cursor="hand2",
+            takefocus=True,
+            font=("Microsoft YaHei UI", 9, "bold"),
+        )
+
+    def selected_entries(self):
+        if self.scope_var.get() == "recent":
+            return self.entries[-VOCABULARY_RECENT_LIMIT:]
+        return self.entries[-VOCABULARY_MAX_ENTRIES:]
+
+    def _generate(self):
+        if str(self.generate_button.cget("state")) == "disabled":
+            return
+        self.generate_callback(self.selected_entries())
+
+    def set_generating(self):
+        self.status_var.set("正在整理单词，请稍候…")
+        self.status_label.configure(fg=NOTE_WARNING_NOTE)
+        self.generate_button.configure(state="disabled", text="正在生成")
+        for button in self.scope_buttons:
+            button.configure(state="disabled")
+
+    def show_failure(self, message):
+        self.status_var.set(message)
+        self.status_label.configure(fg=NOTE_DANGER)
+        self.generate_button.configure(state="normal", text="重新生成")
+        for button in self.scope_buttons:
+            button.configure(state="normal")
+
+    def show_result(self, content, output_path):
+        self.output_path = Path(output_path)
+        self.result_text.configure(state="normal", fg=NOTE_TEXT)
+        self.result_text.delete("1.0", "end")
+        self.result_text.insert("1.0", content)
+        self.result_text.edit_modified(False)
+        self.status_var.set(f"已保存：{self.output_path.name}")
+        self.status_label.configure(fg=NOTE_SUCCESS)
+        self.generate_button.configure(state="normal", text="重新生成")
+        for button in self.scope_buttons:
+            button.configure(state="normal")
+        for button in (self.open_button, self.copy_button, self.save_button):
+            button.configure(state="normal")
+
+    def _save(self):
+        if self.output_path is None:
+            return
+        content = self.result_text.get("1.0", "end-1c")
+        try:
+            self.output_path = Path(self.save_callback(content, self.output_path))
+        except OSError:
+            self.status_var.set("保存失败，请检查文件是否被其他程序占用。")
+            self.status_label.configure(fg=NOTE_DANGER)
+            return
+        self.result_text.edit_modified(False)
+        self.status_var.set(f"已保存：{self.output_path.name}")
+        self.status_label.configure(fg=NOTE_SUCCESS)
+
+    def _copy(self):
+        content = self.result_text.get("1.0", "end-1c")
+        if not content.strip():
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(content)
+        self.root.update_idletasks()
+        self.status_var.set("已复制全部内容")
+        self.status_label.configure(fg=NOTE_SUCCESS)
+
+    def _open_folder(self):
+        STUDIO_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            os.startfile(str(STUDIO_DIR))
+        except OSError:
+            self.status_var.set(f"成果目录：{STUDIO_DIR}")
+            self.status_label.configure(fg=NOTE_MUTED_TEXT)
+
+    def focus(self):
+        try:
+            self.window.deiconify()
+            self.window.lift()
+            self.window.focus_force()
+        except tk.TclError:
+            pass
+
+    def exists(self):
+        try:
+            return bool(self.window.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.window.destroy()
+        except tk.TclError:
+            pass
+        self.close_callback()
+
+
 class ScreenCaptureOverlay:
     def __init__(self, root, on_complete):
         self.root = root
@@ -1819,10 +2387,38 @@ class ScreenCaptureOverlay:
     def _draw_hud(self, title, detail):
         self._clear_hud()
         width = min(430, max(320, self.screen_width - 64))
-        x0 = 32
-        y0 = 28
+        height = 70
+        pointer = POINT()
+        try:
+            user32.GetCursorPos(ctypes.byref(pointer))
+            work_area = monitor_work_area_for_point(
+                pointer.x,
+                pointer.y,
+                self.screen_width,
+                self.screen_height,
+            )
+        except Exception:
+            work_area = (
+                self.screen_x,
+                self.screen_y,
+                self.screen_x + self.screen_width,
+                self.screen_y + self.screen_height,
+            )
+            pointer.x = self.screen_x + self.screen_width // 2
+            pointer.y = self.screen_y + self.screen_height // 2
+        left, top, right, bottom = work_area
+        local_x, local_y = opposite_corner_position(
+            right - left,
+            bottom - top,
+            width,
+            height,
+            pointer.x - left,
+            pointer.y - top,
+        )
+        x0 = left - self.screen_x + local_x
+        y0 = top - self.screen_y + local_y
         x1 = x0 + width
-        y1 = y0 + 70
+        y1 = y0 + height
         self.hud_items.extend(
             [
                 self.canvas.create_rectangle(
@@ -2092,6 +2688,7 @@ class WindowsTrayIcon:
                     )
 
             add_menu_item(toggle_label, self.app.toggle_from_tray, "Enter")
+            add_menu_item("整理单词", self.app.show_vocabulary_study_from_tray, "Ctrl+M")
             add_menu_item("设置", self.app.show_settings_from_tray, "Ctrl+,")
             tk.Frame(menu_body, height=1, bg=NOTE_DIVIDER).pack(fill="x", pady=4)
             add_menu_item("退出 Quick Side Note", self.app.quit_app, "Alt+F4", danger=True)
@@ -2188,6 +2785,7 @@ class QuickNoteApp:
         self.editor_size_label = None
         self.hide_button = None
         self.settings_button = None
+        self.organize_button = None
         self.footer_hint_left = None
         self.footer_hint_right = None
         self.clear_undo_label = None
@@ -2219,6 +2817,9 @@ class QuickNoteApp:
         self.capture_overlay = None
         self.translation_task = None
         self.next_translation_task_id = 0
+        self.vocabulary_dialog = None
+        self.vocabulary_generation_id = 0
+        self.active_vocabulary_generation_id = None
         self.task_hud = None
         self.task_restore_visible = False
         self.clear_undo_state = None
@@ -2230,6 +2831,7 @@ class QuickNoteApp:
             CodexCliBackend(),
             lambda: self.settings["allow_image_fallback"],
         )
+        self.vocabulary_backend = VocabularyOrganizerBackend()
         self.note_store = NoteStore(NOTE_FILE, VOCABULARY_FILE)
 
         self._build_ui()
@@ -2333,6 +2935,28 @@ class QuickNoteApp:
         self.settings_button.bind("<Button-1>", lambda _event: self._show_settings_dialog())
         self.settings_button.bind("<Enter>", lambda _event: self._set_settings_hover(True))
         self.settings_button.bind("<Leave>", lambda _event: self._set_settings_hover(False))
+
+        self.organize_button = tk.Label(
+            header,
+            text="整理",
+            bg=NOTE_HEADER_BG,
+            fg=NOTE_ACCENT,
+            bd=0,
+            width=5,
+            anchor="center",
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 9, "bold"),
+        )
+        self.organize_button.pack(side="right", fill="y")
+        self.organize_button.bind(
+            "<Button-1>", lambda _event: self._show_vocabulary_study_dialog()
+        )
+        self.organize_button.bind(
+            "<Enter>", lambda _event: self._set_organize_hover(True)
+        )
+        self.organize_button.bind(
+            "<Leave>", lambda _event: self._set_organize_hover(False)
+        )
 
         self.ocr_status_label = tk.Label(
             header,
@@ -2579,6 +3203,7 @@ class QuickNoteApp:
         for widget, command in (
             (self.hide_button, self.hide_and_save),
             (self.settings_button, self._show_settings_dialog),
+            (self.organize_button, self._show_vocabulary_study_dialog),
             (self.footer_save_btn, self.save_note),
             (self.footer_clear_btn, self._clear_note),
             (self.footer_hide_btn, self.hide_and_save),
@@ -2625,6 +3250,7 @@ class QuickNoteApp:
         self.root.bind("<F2>", lambda _event: self.rename_page(self.current_page))
         self.root.bind("<Control-k>", lambda _event: self._show_settings_dialog("api"))
         self.root.bind("<Control-comma>", lambda _event: self._show_settings_dialog())
+        self.root.bind("<Control-m>", lambda _event: self._show_vocabulary_study_dialog())
         self.root.bind("<Control-Alt-n>", lambda _event: self.toggle_window())
         self.root.bind("<Control-q>", lambda _event: self.quit_app())
         self.root.bind_all("<Alt-ButtonPress-1>", self._start_move)
@@ -3352,7 +3978,7 @@ class QuickNoteApp:
         ).grid(row=0, column=1, sticky="e", padx=(10, 0))
         tk.Label(
             delay_card,
-            text="固定快捷键：Ctrl+S 保存，Esc 隐藏，Ctrl+L 清空，Ctrl+K API，Ctrl+, 设置，Ctrl+Q 退出。",
+            text="固定快捷键：Ctrl+S 保存，Esc 隐藏，Ctrl+L 清空，Ctrl+M 整理单词，Ctrl+K API，Ctrl+, 设置，Ctrl+Q 退出。",
             bg=NOTE_ACCENT_SOFTER,
             fg=NOTE_MUTED_TEXT,
             anchor="w",
@@ -3851,6 +4477,13 @@ class QuickNoteApp:
         fg = NOTE_TEXT if hover else NOTE_MUTED_TEXT
         self.settings_button.configure(bg=bg, fg=fg)
 
+    def _set_organize_hover(self, hover):
+        if self.organize_button is None:
+            return
+        bg = NOTE_ACCENT_SOFT if hover else NOTE_HEADER_BG
+        fg = NOTE_ACCENT_ACTIVE if hover else NOTE_ACCENT
+        self.organize_button.configure(bg=bg, fg=fg)
+
     def _set_footer_btn_hover(self, btn, hover):
         """底部操作栏按钮的 hover 反馈(暖色)。"""
         if btn is None:
@@ -3890,6 +4523,8 @@ class QuickNoteApp:
                 self._finish_ocr_translation(*event[1:])
             elif event[0] == "translation_progress":
                 self._update_translation_progress(*event[1:])
+            elif event[0] == "vocabulary_done":
+                self._finish_vocabulary_generation(*event[1:])
 
         if not self.closing:
             self.root.after(60, self._poll_events)
@@ -3980,6 +4615,106 @@ class QuickNoteApp:
             self.show_window_from_tray()
         self._show_settings_dialog()
 
+    def show_vocabulary_study_from_tray(self):
+        if not self.visible or self.root.state() == "withdrawn":
+            self.show_window_from_tray()
+        self._show_vocabulary_study_dialog()
+
+    def _wordbook_page_id(self):
+        for page in self.note_pages:
+            if "单词" in str(page.get("name") or ""):
+                return int(page["id"])
+        return self.current_page
+
+    def _show_vocabulary_study_dialog(self):
+        if self.vocabulary_dialog is not None and self.vocabulary_dialog.exists():
+            self.vocabulary_dialog.focus()
+            return
+
+        try:
+            self.save_note()
+        except OSError:
+            self._show_short_message("便签保存失败，暂时无法整理单词")
+            return
+
+        wordbook_path = note_file_for_page(self._wordbook_page_id())
+        entries = collect_vocabulary_entries(
+            note_paths=(wordbook_path,),
+            vocabulary_path=VOCABULARY_FILE,
+        )
+        if not entries:
+            self._show_short_message("单词本中还没有可整理的英文单词")
+            return
+
+        self.vocabulary_dialog = VocabularyStudyDialog(
+            self.root,
+            entries,
+            self._start_vocabulary_generation,
+            self._save_vocabulary_result,
+            self._close_vocabulary_study_dialog,
+        )
+
+    def _start_vocabulary_generation(self, entries):
+        if self.active_vocabulary_generation_id is not None:
+            return
+        if self.vocabulary_dialog is None or not self.vocabulary_dialog.exists():
+            return
+
+        self.vocabulary_generation_id += 1
+        generation_id = self.vocabulary_generation_id
+        self.active_vocabulary_generation_id = generation_id
+        self.vocabulary_dialog.set_generating()
+        thread = threading.Thread(
+            target=self._vocabulary_generation_worker,
+            args=(generation_id, tuple(entries)),
+            daemon=True,
+            name=f"QuickSideNote-Vocabulary-{generation_id}",
+        )
+        thread.start()
+
+    def _vocabulary_generation_worker(self, generation_id, entries):
+        output = None
+        error = None
+        started = time.perf_counter()
+        try:
+            output = self.vocabulary_backend.generate(entries)
+        except Exception as exc:
+            error = str(exc)
+            log(f"vocabulary generation failed: {type(exc).__name__}")
+        else:
+            log(
+                "vocabulary generation completed "
+                f"entry_count={len(entries)} elapsed={time.perf_counter() - started:.2f}s"
+            )
+        self.events.put(("vocabulary_done", generation_id, output, error))
+
+    def _finish_vocabulary_generation(self, generation_id, output, error):
+        if self.active_vocabulary_generation_id != generation_id:
+            log("discarded stale vocabulary generation result")
+            return
+        self.active_vocabulary_generation_id = None
+        dialog = self.vocabulary_dialog
+        if dialog is None or not dialog.exists():
+            return
+        if error:
+            dialog.show_failure(error)
+            return
+        try:
+            output_path = save_studio_output(output)
+        except OSError:
+            dialog.show_failure("学习包已生成，但保存文件失败。")
+            return
+        dialog.show_result(output.content, output_path)
+
+    def _save_vocabulary_result(self, content, output_path):
+        output_path = Path(output_path)
+        atomic_write_text(output_path, str(content).rstrip() + "\n")
+        return output_path
+
+    def _close_vocabulary_study_dialog(self):
+        self.active_vocabulary_generation_id = None
+        self.vocabulary_dialog = None
+
     def quit_app(self):
         log("quit app")
         self.closing = True
@@ -3994,6 +4729,8 @@ class QuickNoteApp:
                 pass
             self.api_setup_after_id = None
         self._cancel_translation_task(show_message=False)
+        if self.vocabulary_dialog is not None:
+            self.vocabulary_dialog.close()
         if self.task_hud is not None:
             self.task_hud.destroy()
         try:
@@ -4077,20 +4814,13 @@ class QuickNoteApp:
         self.task_restore_visible = self.visible and self.root.state() != "withdrawn"
         self.ocr_active = True
         self._set_ocr_status(True, "准备框选")
-        self._show_task_hud(
-            "准备框选",
-            "拖动选择英文区域；再次按侧键或 Esc 可取消。",
-        )
+        self._hide_task_hud()
         self.hide_and_save()
         overlay = ScreenCaptureOverlay(self.root, self._on_capture_complete)
         self.capture_overlay = overlay
         try:
             overlay.start()
             self._set_ocr_status(True, "框选中")
-            self._show_task_hud(
-                "框选英文区域",
-                "拖动选择屏幕文字；再次按侧键或 Esc 可取消。",
-            )
         except Exception as exc:
             self.ocr_active = False
             update_ocr_status_if_available(self, False)

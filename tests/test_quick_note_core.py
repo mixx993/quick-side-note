@@ -66,6 +66,77 @@ class VocabularyStoreTests(unittest.TestCase):
             self.assertIn("created_at", row)
 
 
+class VocabularyOrganizerTests(unittest.TestCase):
+    def test_extracts_translated_pairs_and_plain_word_lines(self):
+        entries = quick_note.extract_vocabulary_entries_from_text(
+            "原文：candid\n译文：坦率的\n\naesthetic\n\n不是单词",
+            source="note.txt",
+        )
+
+        self.assertEqual(
+            [(entry.term, entry.translation) for entry in entries],
+            [("candid", "坦率的"), ("aesthetic", "")],
+        )
+
+    def test_normalizes_numbered_word_lines(self):
+        entries = quick_note.extract_vocabulary_entries_from_text(
+            "1. entire\n- analog\n3、documentary"
+        )
+
+        self.assertEqual(
+            [entry.term for entry in entries],
+            ["entire", "analog", "documentary"],
+        )
+
+    def test_collects_jsonl_and_note_entries_without_duplicates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vocabulary = root / "vocabulary.jsonl"
+            note = root / "note.txt"
+            vocabulary.write_text(
+                '{"source_text":"Candid","translation":"坦率的"}\n'
+                '{broken}\n',
+                encoding="utf-8",
+            )
+            note.write_text(
+                "candid\n\n原文：analog\n译文：模拟的\n",
+                encoding="utf-8",
+            )
+
+            entries = quick_note.collect_vocabulary_entries([note], vocabulary)
+
+            self.assertEqual([entry.term.lower() for entry in entries], ["candid", "analog"])
+            self.assertEqual(entries[0].translation, "坦率的")
+            self.assertEqual(entries[1].translation, "模拟的")
+
+    def test_learning_prompt_uses_fixed_study_pack_sections(self):
+        prompt = quick_note.build_vocabulary_learning_prompt(
+            [quick_note.VocabularyEntry("candid", "坦率的")]
+        )
+
+        self.assertIn("# 词汇学习包", prompt)
+        self.assertIn("## 主题分组", prompt)
+        self.assertIn("## 复习小测", prompt)
+        self.assertIn("candid — 坦率的", prompt)
+
+    def test_save_studio_output_uses_unique_markdown_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = quick_note.StudioOutput(
+                mode="vocabulary_pack",
+                title="词汇学习包",
+                extension="md",
+                content="# 词汇学习包",
+            )
+            now = quick_note.datetime(2026, 7, 10, 7, 30, 0)
+
+            first = quick_note.save_studio_output(output, temp_dir, now=now)
+            second = quick_note.save_studio_output(output, temp_dir, now=now)
+
+            self.assertNotEqual(first, second)
+            self.assertEqual(first.read_text(encoding="utf-8"), "# 词汇学习包\n")
+            self.assertTrue(second.exists())
+
+
 class SafeStorageTests(unittest.TestCase):
     def test_atomic_write_keeps_backup_and_replaces_content(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -536,6 +607,54 @@ class FastTranslationBackendTests(unittest.TestCase):
 
 
 class SideButtonStateTests(unittest.TestCase):
+    def test_selection_hint_uses_corner_opposite_pointer(self):
+        self.assertEqual(
+            quick_note.opposite_corner_position(1920, 1080, 430, 70, 100, 100),
+            (1462, 982),
+        )
+        self.assertEqual(
+            quick_note.opposite_corner_position(1920, 1080, 430, 70, 1800, 900),
+            (28, 28),
+        )
+
+    def test_starting_selection_hides_pointer_task_hud(self):
+        class FakeRoot:
+            def state(self):
+                return "normal"
+
+        class FakeOverlay:
+            def __init__(self, _root, _callback):
+                self.started = False
+
+            def start(self):
+                self.started = True
+
+        app = SimpleNamespace(
+            root=FakeRoot(),
+            visible=True,
+            ocr_active=False,
+            capture_overlay=None,
+            task_restore_visible=False,
+            hidden=False,
+            hud_hidden=0,
+            statuses=[],
+        )
+        app._set_ocr_status = lambda active, text=None: app.statuses.append(
+            (active, text)
+        )
+        app._hide_task_hud = lambda: setattr(app, "hud_hidden", app.hud_hidden + 1)
+        app.hide_and_save = lambda: setattr(app, "hidden", True)
+        app._on_capture_complete = lambda *_args: None
+        app._show_task_failure = lambda _message: None
+
+        with patch("quick_note.ScreenCaptureOverlay", FakeOverlay):
+            quick_note.QuickNoteApp.start_ocr_selection(app)
+
+        self.assertEqual(app.hud_hidden, 1)
+        self.assertTrue(app.hidden)
+        self.assertTrue(app.capture_overlay.started)
+        self.assertEqual(app.statuses[-1], (True, "框选中"))
+
     def test_side_click_cancels_active_ocr_overlay(self):
         class FakeRoot:
             def __init__(self):

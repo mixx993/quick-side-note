@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$appVersion = "1.5.2"
+$appVersion = "1.6.0"
 $releaseDir = Join-Path $root "release"
 $appDir = Join-Path $releaseDir "QuickSideNote_App_v$appVersion"
 $portableZip = Join-Path $releaseDir "QuickSideNote_App_v$appVersion.zip"
